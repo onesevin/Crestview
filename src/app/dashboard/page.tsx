@@ -235,7 +235,64 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadPendingTasks();
   };
 
-  const handleGenerateSchedule = async () => {
+  const handleWorkHoursChange = async (dateStr: string, newHours: number) => {
+    setWorkHours({ ...workHours, [dateStr]: newHours });
+    
+    // Check if this date already has a schedule
+    const { data: existingSchedule } = await supabase
+      .from('schedules')
+      .select('id')
+      .eq('schedule_date', dateStr)
+      .eq('user_id', user.id)
+      .single();
+    
+    if (existingSchedule) {
+      // Schedule exists, ask if they want to regenerate
+      const shouldRegenerate = confirm(
+        `This day already has a schedule. Regenerate with ${newHours} hours?`
+      );
+      
+      if (shouldRegenerate) {
+        setLoading(true);
+        try {
+          // Delete existing schedule
+          await supabase
+            .from('schedule_items')
+            .delete()
+            .eq('schedule_id', existingSchedule.id);
+          
+          await supabase
+            .from('schedules')
+            .delete()
+            .eq('id', existingSchedule.id);
+          
+          // Get tasks for this day from the old schedule or use current tasks
+          const tasksToSchedule = tasks.length > 0 ? tasks : [];
+          
+          if (tasksToSchedule.length === 0) {
+            alert('No tasks available to schedule');
+            setLoading(false);
+            return;
+          }
+          
+          // Regenerate with new hours
+          await generateScheduleForDay(dateStr, tasksToSchedule, newHours);
+          
+          // Reload schedule
+          if (format(selectedDate, 'yyyy-MM-dd') === dateStr) {
+            await loadScheduleForDate(selectedDate);
+          }
+          
+          alert(`Schedule regenerated with ${newHours} hours!`);
+        } catch (error) {
+          console.error('Error regenerating schedule:', error);
+          alert('Failed to regenerate schedule');
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+  };
     if (tasks.length === 0) {
       alert('Please add some tasks first!');
       return;
@@ -295,7 +352,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     }
   };
 
-  const generateScheduleForDay = async (date: string, dayTasks: Task[], hours: number) => {
+  const handleGenerateSchedule = async () => {
     const taskDescriptions = dayTasks.map(t => 
       `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
     );
@@ -435,7 +492,7 @@ Return ONLY valid JSON:
                 </button>
                 <select
                   value={workHours[dateStr] || 6}
-                  onChange={(e) => setWorkHours({ ...workHours, [dateStr]: Number(e.target.value) })}
+                  onChange={(e) => handleWorkHoursChange(dateStr, Number(e.target.value))}
                   className="w-full mt-2 p-2 bg-gray-800 text-white rounded text-sm"
                 >
                   {[4, 5, 6, 7, 8].map(h => (
