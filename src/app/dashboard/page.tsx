@@ -202,20 +202,31 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadPendingTasks();
   };
 
-  const handleCompleteTask = async (itemId: string, taskId: string | null) => {
-    // Mark schedule item as completed
+  const handleCompleteTask = async (itemId: string, taskId: string | null, currentlyCompleted: boolean) => {
+    // Toggle completion status
     await supabase
       .from('schedule_items')
-      .update({ completed: true })
+      .update({ completed: !currentlyCompleted })
       .eq('id', itemId);
 
-    // If it has a task, mark task as completed
-    if (taskId) {
+    // If checking as complete AND it has a task, mark task as completed
+    if (!currentlyCompleted && taskId) {
       await supabase
         .from('tasks')
         .update({ 
           status: 'completed',
           completed_at: new Date().toISOString()
+        })
+        .eq('id', taskId);
+    }
+    
+    // If unchecking AND it has a task, mark task back to pending
+    if (currentlyCompleted && taskId) {
+      await supabase
+        .from('tasks')
+        .update({ 
+          status: 'pending',
+          completed_at: null
         })
         .eq('id', taskId);
     }
@@ -577,7 +588,7 @@ Return ONLY valid JSON:
                               <input
                                 type="checkbox"
                                 checked={item.completed}
-                                onChange={() => !item.completed && handleCompleteTask(item.id, item.task_id || null)}
+                                onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
                                 className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500 focus:ring-2 cursor-pointer"
                               />
                               <span className="text-sm text-gray-400">Complete</span>
