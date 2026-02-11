@@ -1,11 +1,11 @@
 // src/lib/supabase.ts
 
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Helper functions for database operations
 
@@ -149,8 +149,8 @@ export async function rolloverIncompleteTasks(userId: string, date: string) {
   if (!schedule) return [];
 
   const incompleteTasks = schedule.items
-    ?.filter(item => item.item_type === 'task' && !item.completed && item.task_id)
-    .map(item => item.task_id!) || [];
+    ?.filter((item: any) => item.item_type === 'task' && !item.completed && item.task_id)
+    .map((item: any) => item.task_id!) || [];
 
   if (incompleteTasks.length === 0) return [];
 
