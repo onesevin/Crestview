@@ -186,8 +186,8 @@ export async function updateTaskPattern(
     .select('*')
     .eq('user_id', userId);
 
-  let matchingPattern = existingPatterns?.find(pattern =>
-    pattern.task_keywords.some(kw => keywords.includes(kw))
+  let matchingPattern = existingPatterns?.find((pattern: any) =>
+    pattern.task_keywords.some((kw: string) => keywords.includes(kw))
   );
 
   if (matchingPattern) {
