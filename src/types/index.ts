@@ -34,6 +34,7 @@ export interface Schedule {
     total_hours: number;
     work_blocks: number;
     break_blocks: number;
+    suggestions?: string[];
   };
   created_at: string;
   items?: ScheduleItem[];
