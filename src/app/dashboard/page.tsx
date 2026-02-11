@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { authenticatedFetch } from '@/lib/api-client';
 import { Task, Schedule } from '@/types';
 import { format, addDays, startOfWeek, isWeekend } from 'date-fns';
 
@@ -39,7 +40,7 @@ export default function Dashboard() {
   }, [user, selectedDate]);
 
   const loadPendingTasks = async () => {
-    const response = await fetch('/api/tasks');
+    const response = await authenticatedFetch('/api/tasks');
     const data = await response.json();
     setTasks(data.tasks || []);
   };
@@ -75,7 +76,7 @@ export default function Dashboard() {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/tasks', {
+      const response = await authenticatedFetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: taskInput }),
@@ -98,7 +99,7 @@ export default function Dashboard() {
             // User wants to add duplicates too
             const allTasks = [...data.uniqueTasks, ...data.duplicates.map((d: any) => d.newTask)];
             
-            const confirmResponse = await fetch('/api/tasks', {
+            const confirmResponse = await authenticatedFetch('/api/tasks', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ tasksToAdd: allTasks }),
@@ -112,7 +113,7 @@ export default function Dashboard() {
             }
           } else if (data.uniqueTasks.length > 0) {
             // User doesn't want duplicates, add only unique tasks
-            const confirmResponse = await fetch('/api/tasks', {
+            const confirmResponse = await authenticatedFetch('/api/tasks', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ tasksToAdd: data.uniqueTasks }),
@@ -194,7 +195,7 @@ export default function Dashboard() {
         
         if (dayTasks.length === 0) continue; // Skip days with no tasks
         
-        const response = await fetch('/api/generate-schedule', {
+        const response = await authenticatedFetch('/api/generate-schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -227,7 +228,7 @@ export default function Dashboard() {
     if (!startTime) return;
 
     try {
-      await fetch('/api/tasks', {
+      await authenticatedFetch('/api/tasks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -248,7 +249,7 @@ export default function Dashboard() {
     const dateStr = format(yesterday, 'yyyy-MM-dd');
 
     try {
-      const response = await fetch('/api/rollover', {
+      const response = await authenticatedFetch('/api/rollover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: dateStr }),
@@ -268,7 +269,7 @@ export default function Dashboard() {
     }
 
     try {
-      const response = await fetch('/api/tasks', {
+      const response = await authenticatedFetch('/api/tasks', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId }),
@@ -288,7 +289,7 @@ export default function Dashboard() {
 
   const handleChangePriority = async (taskId: string, newPriority: 'high' | 'medium' | 'low') => {
     try {
-      const response = await fetch('/api/tasks/priority', {
+      const response = await authenticatedFetch('/api/tasks/priority', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId, priority: newPriority }),

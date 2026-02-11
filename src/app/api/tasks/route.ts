@@ -11,14 +11,16 @@ export async function GET(request: NextRequest) {
   try {
     console.log('=== GET /api/tasks ===');
     
-    // Check cookies
-    const cookieStore = await cookies();
-    const allCookies = cookieStore.getAll();
-    console.log('Cookies found:', allCookies.length);
-    console.log('Cookie names:', allCookies.map(c => c.name).join(', '));
+    // Get token from Authorization header
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
     
+    if (!token) {
+      return NextResponse.json({ error: 'No auth token' }, { status: 401 });
+    }
+
     const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
+    const { data: { user }, error } = await supabase.auth.getUser(token);
     
     console.log('User found:', !!user);
     if (error) console.log('Auth error:', error.message);
