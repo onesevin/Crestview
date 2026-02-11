@@ -202,6 +202,28 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadPendingTasks();
   };
 
+  const handleCompleteTask = async (itemId: string, taskId: string | null) => {
+    // Mark schedule item as completed
+    await supabase
+      .from('schedule_items')
+      .update({ completed: true })
+      .eq('id', itemId);
+
+    // If it has a task, mark task as completed
+    if (taskId) {
+      await supabase
+        .from('tasks')
+        .update({ 
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', taskId);
+    }
+
+    await loadScheduleForDate(selectedDate);
+    await loadPendingTasks();
+  };
+
   const handleGenerateSchedule = async () => {
     if (tasks.length === 0) {
       alert('Please add some tasks first!');
@@ -550,6 +572,17 @@ Return ONLY valid JSON:
                             </div>
                             <div className="text-lg mt-1">{item.title}</div>
                           </div>
+                          {item.item_type === 'task' && !item.completed && (
+                            <button
+                              onClick={() => handleCompleteTask(item.id, item.task_id)}
+                              className="ml-3 px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded transition"
+                            >
+                              Complete
+                            </button>
+                          )}
+                          {item.completed && (
+                            <span className="ml-3 text-green-400 text-sm">✓ Done</span>
+                          )}
                         </div>
                       </div>
                     );
