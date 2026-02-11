@@ -293,6 +293,8 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       }
     }
   };
+
+  const handleGenerateSchedule = async () => {
     if (tasks.length === 0) {
       alert('Please add some tasks first!');
       return;
@@ -351,8 +353,6 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       setLoading(false);
     }
   };
-
-  const handleGenerateSchedule = async () => {
     const taskDescriptions = dayTasks.map(t => 
       `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
     );
