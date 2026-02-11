@@ -574,7 +574,7 @@ Return ONLY valid JSON:
                           </div>
                           {item.item_type === 'task' && !item.completed && (
                             <button
-                              onClick={() => handleCompleteTask(item.id, item.task_id)}
+                              onClick={() => handleCompleteTask(item.id, item.task_id || null)}
                               className="ml-3 px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded transition"
                             >
                               Complete
