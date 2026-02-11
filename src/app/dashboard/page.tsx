@@ -572,16 +572,16 @@ Return ONLY valid JSON:
                             </div>
                             <div className="text-lg mt-1">{item.title}</div>
                           </div>
-                          {item.item_type === 'task' && !item.completed && (
-                            <button
-                              onClick={() => handleCompleteTask(item.id, item.task_id || null)}
-                              className="ml-3 px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded transition"
-                            >
-                              Complete
-                            </button>
-                          )}
-                          {item.completed && (
-                            <span className="ml-3 text-green-400 text-sm">✓ Done</span>
+                          {item.item_type === 'task' && (
+                            <label className="flex items-center gap-2 cursor-pointer ml-3">
+                              <input
+                                type="checkbox"
+                                checked={item.completed}
+                                onChange={() => !item.completed && handleCompleteTask(item.id, item.task_id || null)}
+                                className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500 focus:ring-2 cursor-pointer"
+                              />
+                              <span className="text-sm text-gray-400">Complete</span>
+                            </label>
                           )}
                         </div>
                       </div>
