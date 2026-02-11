@@ -19,7 +19,8 @@ interface ScheduleBlock {
 export async function generateOptimalSchedule(
   taskDescriptions: string[],
   patterns: TaskPattern[] = [],
-  date: string
+  date: string,
+  workHours: number = 6
 ): Promise<{
   blocks: ScheduleBlock[];
   suggestions: string[];
@@ -34,16 +35,16 @@ ${patterns.map(p =>
 ).join('\n')}`
     : '';
 
-  const prompt = `You are a productivity scheduling assistant. Generate an optimal 6-hour work schedule for ${dayOfWeek}, ${date}.
+  const prompt = `You are a productivity scheduling assistant. Generate an optimal ${workHours}-hour work schedule for ${dayOfWeek}, ${date}.
 
 TASKS TO SCHEDULE:
 ${taskDescriptions.map((task, i) => `${i + 1}. ${task}`).join('\n')}
 ${patternContext}
 
 REQUIREMENTS:
-- Total work time: 6 hours (360 minutes)
+- Total work time: ${workHours} hours (${workHours * 60} minutes)
 - Start time: 9:00 AM
-- End time: 3:00 PM (with breaks)
+- End time: ${9 + workHours}:00 ${9 + workHours >= 12 ? 'PM' : 'AM'} (with breaks)
 - Include healthy breaks for wellbeing:
   * Short breaks: 5-10 minutes every 60-90 minutes
   * Lunch break: 30 minutes around midday
