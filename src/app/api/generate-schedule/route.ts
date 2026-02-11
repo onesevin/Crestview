@@ -3,16 +3,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateOptimalSchedule } from '@/lib/scheduler';
 import { getTaskPatterns } from '@/lib/supabase';
-import { createClient } from '@/lib/supabase-server';
-import { cookies } from 'next/headers';
+import { getAuthenticatedUser } from '@/lib/api-auth';
 
 export async function POST(request: NextRequest) {
   try {
     const { date, taskIds, workHours } = await request.json();
 
     // Get authenticated user
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { user, error: authError, supabase } = await getAuthenticatedUser(request);
     
     if (!user || authError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

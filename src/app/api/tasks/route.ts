@@ -3,29 +3,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createTask, getPendingTasks, markTaskCompleted, updateTaskPattern } from '@/lib/supabase';
 import { parseTasksFromNaturalLanguage, extractKeywordsFromTask } from '@/lib/scheduler';
-import { createClient } from '@/lib/supabase-server';
-import { cookies } from 'next/headers';
+import { getAuthenticatedUser } from '@/lib/api-auth';
 
 // GET - Fetch pending tasks
 export async function GET(request: NextRequest) {
   try {
     console.log('=== GET /api/tasks ===');
     
-    // Get token from Authorization header
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'No auth token' }, { status: 401 });
-    }
-
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { user, error: authError, supabase } = await getAuthenticatedUser(request);
     
     console.log('User found:', !!user);
-    if (error) console.log('Auth error:', error.message);
+    if (authError) console.log('Auth error:', authError);
     
-    if (!user) {
+    if (!user || authError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -61,10 +51,9 @@ export async function POST(request: NextRequest) {
   try {
     const { input } = await request.json();
 
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user, error: authError, supabase } = await getAuthenticatedUser(request);
     
-    if (!user) {
+    if (!user || authError) {
       return NextResponse.json({ error: 'Unauthorized - Please log in' }, { status: 401 });
     }
 
@@ -151,10 +140,9 @@ export async function PUT(request: NextRequest) {
   try {
     const { tasksToAdd } = await request.json();
 
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user, error: authError, supabase } = await getAuthenticatedUser(request);
     
-    if (!user) {
+    if (!user || authError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -195,10 +183,9 @@ export async function PATCH(request: NextRequest) {
   try {
     const { taskId, actualDuration } = await request.json();
 
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user, error: authError, supabase } = await getAuthenticatedUser(request);
     
-    if (!user) {
+    if (!user || authError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -236,10 +223,9 @@ export async function DELETE(request: NextRequest) {
   try {
     const { taskId } = await request.json();
 
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user, error: authError, supabase } = await getAuthenticatedUser(request);
     
-    if (!user) {
+    if (!user || authError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
