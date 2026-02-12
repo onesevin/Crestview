@@ -583,9 +583,9 @@ Return ONLY valid JSON:
   };
 
   const priorityConfig = {
-    high: { dot: 'bg-red-400', text: 'text-red-400', label: 'High', border: 'border-l-red-400' },
-    medium: { dot: 'bg-amber-400', text: 'text-amber-400', label: 'Medium', border: 'border-l-amber-400' },
-    low: { dot: 'bg-sky-400', text: 'text-sky-400', label: 'Low', border: 'border-l-sky-400' },
+    high: { dot: 'bg-red-400', text: 'text-red-400', label: 'High', border: 'border-l-red-400/60' },
+    medium: { dot: 'bg-amber-400', text: 'text-amber-400', label: 'Medium', border: 'border-l-amber-400/60' },
+    low: { dot: 'bg-zinc-500', text: 'text-zinc-500', label: 'Low', border: 'border-l-zinc-600' },
   };
 
   if (!user) {
@@ -593,10 +593,10 @@ Return ONLY valid JSON:
       <div className="min-h-screen bg-[#050507] flex items-center justify-center">
         <div className="text-center animate-fade-in">
           <div className="inline-block mb-6">
-            <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
+            <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin-slow" />
           </div>
           <h1 className="text-2xl text-white mb-4">Please sign in</h1>
-          <a href="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+          <a href="/" className="text-slate-400 hover:text-white transition-colors">
             Go to login
           </a>
         </div>
@@ -607,37 +607,33 @@ Return ONLY valid JSON:
   const weekDates = getWeekDates();
 
   return (
-    <div className="min-h-screen bg-[#050507] text-white relative">
-      {/* Background gradients */}
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(99,102,241,0.08)_0%,_transparent_50%)] pointer-events-none" />
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.06)_0%,_transparent_50%)] pointer-events-none" />
-
+    <div className="min-h-screen bg-[#050507] text-white">
       {/* Loading overlay */}
       {loading && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
           <div className="glass-card p-8 flex flex-col items-center gap-4 animate-fade-in">
-            <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
-            <p className="text-slate-300 text-sm">Processing...</p>
+            <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin-slow" />
+            <p className="text-slate-400 text-sm">Processing...</p>
           </div>
         </div>
       )}
 
-      <div className="relative z-10 max-w-7xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-semibold text-white tracking-tight">
             TaskFlow
           </h1>
           <button
             onClick={handleSignOut}
-            className="px-4 py-2 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:border-white/20 hover:bg-white/5 transition-all duration-200 text-sm"
+            className="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition-colors text-sm"
           >
             Sign Out
           </button>
         </div>
 
         {/* Week Navigation */}
-        <div className="flex gap-3 mb-8 overflow-x-auto pb-2">
+        <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
           {weekDates.map((date) => {
             const dateStr = format(date, 'yyyy-MM-dd');
             const isSelected = format(selectedDate, 'yyyy-MM-dd') === dateStr;
@@ -647,28 +643,27 @@ Return ONLY valid JSON:
               <div key={dateStr} className="flex flex-col items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedDate(date)}
-                  className={`relative px-5 py-3 rounded-xl transition-all duration-200 min-w-[100px] ${
+                  className={`relative px-5 py-3 rounded-lg transition-all duration-150 min-w-[100px] ${
                     isSelected
-                      ? 'gradient-btn text-white shadow-lg shadow-indigo-500/20'
-                      : 'bg-white/5 border border-white/8 text-slate-400 hover:bg-white/10 hover:text-white'
+                      ? 'bg-white text-black'
+                      : 'bg-white/[0.03] border border-white/[0.06] text-slate-500 hover:bg-white/[0.06] hover:text-slate-300'
                   }`}
                 >
                   <div className="text-xs font-medium uppercase tracking-wider">{format(date, 'EEE')}</div>
                   <div className="text-lg font-bold mt-0.5">{format(date, 'MMM d')}</div>
                   {isTodayDate && (
-                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full shadow-lg shadow-emerald-400/50" />
+                    <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${isSelected ? 'bg-black ring-2 ring-white' : 'bg-white'}`} />
                   )}
                 </button>
-                {/* Styled hour selector */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                   {[4, 5, 6, 7, 8].map(h => (
                     <button
                       key={h}
                       onClick={() => handleWorkHoursChange(dateStr, h)}
-                      className={`w-7 h-7 rounded-md text-xs font-medium transition-all duration-200 ${
+                      className={`w-7 h-7 rounded text-xs font-medium transition-all duration-150 ${
                         (workHours[dateStr] || 6) === h
-                          ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40'
-                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                          ? 'bg-white/10 text-white'
+                          : 'text-slate-600 hover:text-slate-400'
                       }`}
                     >
                       {h}h
@@ -684,39 +679,36 @@ Return ONLY valid JSON:
           {/* Left Column */}
           <div className="space-y-6">
             {/* Add Tasks */}
-            <div className="glass-card p-6 animate-fade-in">
-              <h2 className="text-lg font-semibold text-white mb-4">Add Tasks</h2>
+            <div className="glass-card p-5 animate-fade-in">
+              <h2 className="text-sm font-medium text-slate-400 mb-3">Add Tasks</h2>
               <textarea
                 value={taskInput}
                 onChange={(e) => setTaskInput(e.target.value)}
-                placeholder="Describe your tasks naturally...&#10;e.g. Review PRs (high priority)&#10;Write documentation&#10;Fix login bug"
-                className="w-full p-3.5 bg-white/5 border border-white/10 text-white rounded-lg mb-4 h-32 resize-none placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all duration-200 text-sm"
+                placeholder="Describe your tasks naturally...&#10;e.g. Review PRs (high priority)&#10;Write documentation&#10;Fix login bug by Friday"
+                className="w-full p-3 bg-white/[0.03] border border-white/[0.06] text-white rounded-lg mb-3 h-28 resize-none placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-white/15 focus:border-white/10 transition-all duration-200 text-sm"
                 disabled={loading}
               />
               <button
                 onClick={handleAddTasks}
                 disabled={loading || !taskInput.trim()}
-                className="gradient-btn w-full text-white py-3 rounded-lg font-medium text-sm"
+                className="btn-primary w-full py-2.5 rounded-lg text-sm"
               >
                 Add Tasks
               </button>
             </div>
 
             {/* Pending Tasks */}
-            <div className="glass-card p-6 animate-fade-in">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-white">Pending Tasks</h2>
-                <span className="text-xs text-slate-400 bg-white/5 px-2.5 py-1 rounded-full">
-                  {tasks.length} tasks
+            <div className="glass-card p-5 animate-fade-in">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-medium text-slate-400">Tasks</h2>
+                <span className="text-xs text-slate-600">
+                  {tasks.length}
                 </span>
               </div>
-              <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
                 {tasks.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <svg className="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                    <p className="text-sm">No tasks yet</p>
+                  <div className="text-center py-8">
+                    <p className="text-sm text-slate-600">No tasks yet</p>
                   </div>
                 ) : (
                   tasks.map((task) => {
@@ -726,20 +718,20 @@ Return ONLY valid JSON:
                     return (
                       <div
                         key={task.id}
-                        className={`group bg-white/[0.03] border border-white/[0.06] border-l-2 ${pc.border} rounded-lg pl-3.5 pr-3 py-3 glow-border`}
+                        className={`group bg-white/[0.02] border border-white/[0.05] border-l-2 ${pc.border} rounded-lg pl-3.5 pr-3 py-2.5 card-hover`}
                       >
                         <div className="flex justify-between items-start gap-2">
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-white text-sm leading-snug">{task.title}</div>
+                            <div className="font-medium text-slate-200 text-sm leading-snug">{task.title}</div>
                             {task.description && (
-                              <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+                              <div className="text-xs text-slate-600 mt-0.5 line-clamp-1">
                                 {task.description}
                               </div>
                             )}
                           </div>
                           <button
                             onClick={() => handleDeleteTask(task.id)}
-                            className="p-1 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                            className="p-1 rounded text-slate-700 hover:text-slate-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -750,19 +742,19 @@ Return ONLY valid JSON:
                           <select
                             value={task.priority}
                             onChange={(e) => handleChangePriority(task.id, e.target.value as any)}
-                            className={`text-[11px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 ${pc.text} cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all`}
+                            className={`text-[11px] px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] ${pc.text} cursor-pointer focus:outline-none transition-all`}
                           >
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
                             <option value="low">Low</option>
                           </select>
                           {task.due_date ? (
-                            <label className={`relative text-[11px] px-1.5 py-0.5 rounded-full cursor-pointer transition-all ${
+                            <label className={`relative text-[11px] px-1.5 py-0.5 rounded cursor-pointer transition-all ${
                               isOverdue
-                                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                ? 'bg-red-500/10 text-red-400 border border-red-500/15'
                                 : isDueToday
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-white/5 text-slate-400 border border-white/10 hover:border-white/20'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/15'
+                                : 'bg-white/[0.03] text-slate-500 border border-white/[0.06] hover:border-white/10'
                             }`}>
                               {isOverdue ? 'Overdue' : isDueToday ? 'Today' : format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
                               <input
@@ -773,7 +765,7 @@ Return ONLY valid JSON:
                               />
                             </label>
                           ) : (
-                            <label className="relative text-[11px] px-1.5 py-0.5 rounded-full bg-white/5 text-slate-600 border border-white/[0.06] cursor-pointer hover:text-slate-400 hover:border-white/10 transition-all">
+                            <label className="relative text-[11px] px-1.5 py-0.5 rounded bg-white/[0.02] text-slate-700 border border-white/[0.04] cursor-pointer hover:text-slate-500 hover:border-white/[0.08] transition-all">
                               + date
                               <input
                                 type="date"
@@ -800,14 +792,14 @@ Return ONLY valid JSON:
                   <h2 className="text-lg font-semibold text-white">
                     {format(selectedDate, 'EEEE, MMMM d')}
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-600 mt-0.5">
                     {currentSchedule?.items?.length || 0} scheduled items
                   </p>
                 </div>
                 <button
                   onClick={handleGenerateSchedule}
                   disabled={loading || tasks.length === 0}
-                  className="gradient-btn-green px-5 py-2.5 rounded-lg text-white text-sm font-medium"
+                  className="btn-primary px-4 py-2 rounded-lg text-sm"
                 >
                   Generate Schedule
                 </button>
@@ -815,18 +807,15 @@ Return ONLY valid JSON:
 
               {!currentSchedule ? (
                 <div className="text-center py-16 animate-fade-in">
-                  <svg className="w-12 h-12 mx-auto mb-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-slate-400 font-medium">No schedule yet</p>
-                  <p className="text-sm text-slate-500 mt-1">Add tasks and generate a schedule to get started</p>
+                  <p className="text-slate-600 text-sm">No schedule yet</p>
+                  <p className="text-xs text-slate-700 mt-1">Add tasks and generate a schedule to get started</p>
                 </div>
               ) : (
                 <div className="relative">
                   {/* Timeline line */}
-                  <div className="absolute left-[23px] top-2 bottom-2 w-px bg-gradient-to-b from-indigo-500/30 via-violet-500/20 to-transparent" />
+                  <div className="absolute left-[23px] top-2 bottom-2 w-px bg-white/[0.06]" />
 
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     {currentSchedule.items?.map((item, index) => {
                       const priority = item.task?.priority || 'low';
                       const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
@@ -836,29 +825,27 @@ Return ONLY valid JSON:
                       const isBreak = item.item_type === 'break';
 
                       const dotColor = isTask
-                        ? (priority === 'high' ? 'bg-red-400' : priority === 'medium' ? 'bg-amber-400' : 'bg-sky-400')
-                        : isLunch
-                        ? 'bg-emerald-400'
-                        : 'bg-slate-500';
+                        ? (priority === 'high' ? 'bg-red-400' : priority === 'medium' ? 'bg-amber-400' : 'bg-zinc-500')
+                        : 'bg-zinc-700';
 
                       return (
                         <div
                           key={item.id}
-                          className={`relative flex items-start gap-4 pl-2 py-2.5 pr-3 rounded-lg transition-all duration-200 ${
-                            isTask ? 'hover:bg-white/[0.03]' : ''
-                          } ${item.completed ? 'opacity-50' : ''}`}
+                          className={`relative flex items-start gap-4 pl-2 py-2.5 pr-3 rounded-lg transition-all duration-150 ${
+                            isTask ? 'hover:bg-white/[0.02]' : ''
+                          } ${item.completed ? 'opacity-40' : ''}`}
                           style={{ animationDelay: `${index * 50}ms` }}
                         >
                           {/* Timeline dot */}
                           <div className="relative z-10 flex-shrink-0 mt-1.5">
-                            <div className={`w-3 h-3 rounded-full ${dotColor} ring-4 ring-[#050507]`} />
+                            <div className={`w-2.5 h-2.5 rounded-full ${dotColor} ring-4 ring-[#050507]`} />
                           </div>
 
                           {/* Content */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 text-xs text-slate-400 mb-0.5">
+                            <div className="flex items-center gap-2 text-xs text-slate-600 mb-0.5">
                               <span className="font-mono">{item.start_time}</span>
-                              <span className="text-slate-600">-</span>
+                              <span className="text-slate-700">-</span>
                               <span className="font-mono">{item.end_time}</span>
                               {isTask && item.task && (
                                 <span className={`flex items-center gap-1 ${pc.text}`}>
@@ -866,12 +853,11 @@ Return ONLY valid JSON:
                                   {pc.label}
                                 </span>
                               )}
-                              {isLunch && <span className="text-emerald-400">Lunch</span>}
-                              {isBreak && <span className="text-slate-500">Break</span>}
+                              {(isLunch || isBreak) && <span className="text-slate-700">{isLunch ? 'Lunch' : 'Break'}</span>}
                             </div>
                             <div className={`font-medium text-sm ${
-                              item.completed ? 'line-through text-slate-500' :
-                              isTask ? 'text-white' : 'text-slate-400'
+                              item.completed ? 'line-through text-slate-600' :
+                              isTask ? 'text-slate-200' : 'text-slate-500'
                             }`}>
                               {item.title}
                             </div>

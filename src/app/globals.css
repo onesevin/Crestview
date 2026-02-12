@@ -3,10 +3,8 @@
 :root {
   --background: #050507;
   --foreground: #f1f5f9;
-  --card-bg: rgba(255, 255, 255, 0.05);
-  --card-border: rgba(255, 255, 255, 0.08);
-  --accent-from: #6366f1;
-  --accent-to: #8b5cf6;
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --card-border: rgba(255, 255, 255, 0.06);
 }
 
 @theme inline {
@@ -31,42 +29,45 @@ body {
   border-radius: 1rem;
 }
 
-/* Gradient button */
-.gradient-btn {
-  background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
-  transition: all 0.2s ease;
+/* Primary button — solid white */
+.btn-primary {
+  background: #fff;
+  color: #050507;
+  font-weight: 500;
+  transition: all 0.15s ease;
 }
-.gradient-btn:hover:not(:disabled) {
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
-  transform: translateY(-1px);
+.btn-primary:hover:not(:disabled) {
+  background: #e4e4e7;
 }
-.gradient-btn:disabled {
-  opacity: 0.5;
-  background: #374151;
-}
-
-/* Green gradient button */
-.gradient-btn-green {
-  background: linear-gradient(135deg, #10b981, #059669);
-  transition: all 0.2s ease;
-}
-.gradient-btn-green:hover:not(:disabled) {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
-  transform: translateY(-1px);
-}
-.gradient-btn-green:disabled {
-  opacity: 0.5;
-  background: #374151;
+.btn-primary:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
-/* Glow border on hover */
-.glow-border {
-  transition: all 0.2s ease;
+/* Secondary button — ghost */
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #a1a1aa;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease;
 }
-.glow-border:hover {
-  border-color: rgba(99, 102, 241, 0.3);
-  box-shadow: 0 0 16px rgba(99, 102, 241, 0.1);
-  transform: translateY(-2px);
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.btn-secondary:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Subtle hover for cards */
+.card-hover {
+  transition: all 0.15s ease;
+}
+.card-hover:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* Animations */
@@ -76,10 +77,6 @@ body {
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
-}
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
 }
 
 .animate-spin-slow {
@@ -97,45 +94,45 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* Custom checkbox */
 .custom-checkbox {
   appearance: none;
   -webkit-appearance: none;
-  width: 1.25rem;
-  height: 1.25rem;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 0.375rem;
-  background: rgba(255, 255, 255, 0.05);
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.3rem;
+  background: transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   position: relative;
 }
 .custom-checkbox:checked {
-  background: linear-gradient(135deg, #10b981, #059669);
-  border-color: #10b981;
+  background: #fff;
+  border-color: #fff;
 }
 .custom-checkbox:checked::after {
   content: '';
   position: absolute;
-  left: 5px;
+  left: 4.5px;
   top: 1px;
-  width: 5px;
-  height: 10px;
-  border: solid white;
+  width: 4px;
+  height: 9px;
+  border: solid #050507;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
 .custom-checkbox:hover {
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 .custom-checkbox:focus {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
 }
