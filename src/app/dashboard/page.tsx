@@ -322,7 +322,7 @@ export default function Dashboard() {
     }
   };
 
-  const addTaskToDay = async (task: Task, dateStr: string) => {
+  const addTaskToDay = async (task: Task, dateStr: string, insertAtItemId?: string) => {
     // Remove any existing schedule_items for this task (prevents duplicates across days)
     await supabase
       .from('schedule_items')
@@ -351,26 +351,44 @@ export default function Dashboard() {
       schedule = { ...newSchedule, items: [] };
     }
 
-    // Find last end_time
-    const items = schedule.items || [];
-    let lastEndTime = '09:00';
-    for (const item of items) {
-      if (item.end_time > lastEndTime) lastEndTime = item.end_time;
+    const duration = task.estimated_minutes || 30;
+
+    // Insert with placeholder times (will be recalculated)
+    const { data: newItem } = await supabase
+      .from('schedule_items')
+      .insert({
+        schedule_id: schedule.id,
+        task_id: task.id,
+        start_time: '00:00',
+        end_time: formatTime(duration),
+        item_type: 'task',
+        title: task.title,
+        completed: false,
+      })
+      .select()
+      .single();
+
+    if (!newItem) return;
+
+    // Build ordered list — insert at position or append at end
+    const existingItems = schedule.items || [];
+    let orderedItems: any[];
+
+    if (insertAtItemId) {
+      const insertIndex = existingItems.findIndex((i: any) => i.id === insertAtItemId);
+      orderedItems = [...existingItems];
+      if (insertIndex !== -1) {
+        orderedItems.splice(insertIndex, 0, newItem);
+      } else {
+        orderedItems.push(newItem);
+      }
+    } else {
+      orderedItems = [...existingItems, newItem];
     }
 
-    const duration = task.estimated_minutes || 30;
-    const startMinutes = getMinutes(lastEndTime);
-    const endMinutes = startMinutes + duration;
-
-    await supabase.from('schedule_items').insert({
-      schedule_id: schedule.id,
-      task_id: task.id,
-      start_time: formatTime(startMinutes),
-      end_time: formatTime(endMinutes),
-      item_type: 'task',
-      title: task.title,
-      completed: false,
-    });
+    // Recalculate all times sequentially from 09:00
+    const recalculated = recalculateTimeSlots(orderedItems);
+    await persistReorderedItems(recalculated);
 
     await supabase
       .from('tasks')
@@ -470,8 +488,10 @@ export default function Dashboard() {
       if (overId.startsWith(WEEK_DAY_PREFIX)) {
         const dateStr = overId.replace(WEEK_DAY_PREFIX, '');
         await addTaskToDay(task, dateStr);
-      } else if (overId === SCHEDULE_DROP_ZONE || over.data.current?.type === SCHEDULE_ITEM) {
+      } else if (overId === SCHEDULE_DROP_ZONE) {
         await addTaskToDay(task, format(selectedDate, 'yyyy-MM-dd'));
+      } else if (over.data.current?.type === SCHEDULE_ITEM) {
+        await addTaskToDay(task, format(selectedDate, 'yyyy-MM-dd'), String(over.id));
       }
       return;
     }
@@ -682,11 +702,29 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
   const handleEstimatedMinutesChange = async (taskId: string, value: string) => {
     const minutes = parseInt(value);
-    const { error } = await supabase
+    const newMinutes = isNaN(minutes) ? null : minutes;
+
+    await supabase
       .from('tasks')
-      .update({ estimated_minutes: isNaN(minutes) ? null : minutes })
+      .update({ estimated_minutes: newMinutes })
       .eq('id', taskId);
-    if (error) console.error('Failed to update estimated minutes:', error);
+
+    // Adjust the schedule block duration if this task is on the current schedule
+    if (newMinutes && currentSchedule?.items) {
+      const item = currentSchedule.items.find(i => i.task_id === taskId);
+      if (item) {
+        const startMin = getMinutes(item.start_time);
+        const updatedItems = currentSchedule.items.map(i =>
+          i.id === item.id
+            ? { ...i, end_time: formatTime(startMin + newMinutes) }
+            : i
+        );
+        const recalculated = recalculateTimeSlots(updatedItems);
+        setCurrentSchedule({ ...currentSchedule, items: recalculated });
+        await persistReorderedItems(recalculated);
+      }
+    }
+
     await loadPendingTasks();
     await loadScheduleForDate(selectedDate);
   };
