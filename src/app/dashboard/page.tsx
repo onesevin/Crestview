@@ -303,6 +303,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .eq('id', taskId);
 
     await loadPendingTasks();
+    await loadScheduleForDate(selectedDate);
   };
 
   const handleDueDateChange = async (taskId: string, newDate: string) => {
@@ -312,16 +313,26 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .eq('id', taskId);
 
     await loadPendingTasks();
+    await loadScheduleForDate(selectedDate);
   };
 
   const handleTitleEdit = async (taskId: string, newTitle: string) => {
     if (!newTitle.trim()) return;
+    const trimmed = newTitle.trim();
     await supabase
       .from('tasks')
-      .update({ title: newTitle.trim() })
+      .update({ title: trimmed })
       .eq('id', taskId);
+
+    // Also update the title on any schedule items linked to this task
+    await supabase
+      .from('schedule_items')
+      .update({ title: trimmed })
+      .eq('task_id', taskId);
+
     setEditingTaskId(null);
     await loadPendingTasks();
+    await loadScheduleForDate(selectedDate);
   };
 
   const handleEstimatedMinutesChange = async (taskId: string, value: string) => {
@@ -332,6 +343,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .eq('id', taskId);
     if (error) console.error('Failed to update estimated minutes:', error);
     await loadPendingTasks();
+    await loadScheduleForDate(selectedDate);
   };
 
   const handleCompleteTask = async (
@@ -1035,98 +1047,63 @@ Return ONLY valid JSON:
                   <p className="text-xs text-slate-700 mt-1">Add tasks and generate a schedule to get started</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {(() => {
-                    // Group items into blocks separated by breaks/lunch
-                    const items = currentSchedule.items || [];
-                    const groups: { tasks: ScheduleItem[]; separator?: ScheduleItem }[] = [];
-                    let currentGroup: ScheduleItem[] = [];
-
-                    items.forEach((item) => {
-                      if (item.item_type === 'break' || item.item_type === 'lunch') {
-                        if (currentGroup.length > 0) {
-                          groups.push({ tasks: currentGroup, separator: item });
-                          currentGroup = [];
-                        } else {
-                          groups.push({ tasks: [], separator: item });
-                        }
-                      } else {
-                        currentGroup.push(item);
-                      }
-                    });
-                    if (currentGroup.length > 0) {
-                      groups.push({ tasks: currentGroup });
-                    }
-
-                    return groups.map((group, groupIndex) => (
-                      <div key={groupIndex}>
-                        {/* Task block */}
-                        {group.tasks.length > 0 && (
-                          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
-                            {group.tasks.map((item, itemIndex) => {
-                              const priority = item.task?.priority || 'low';
-                              const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
-
-                              return (
-                                <div
-                                  key={item.id}
-                                  className={`flex items-center gap-3 px-4 py-3 transition-all duration-150 hover:bg-white/[0.02] ${
-                                    itemIndex > 0 ? 'border-t border-white/[0.04]' : ''
-                                  } ${item.completed ? 'opacity-40' : ''}`}
-                                >
-                                  {/* Priority dot */}
-                                  <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
-
-                                  {/* Content */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className={`text-sm font-medium ${
-                                      item.completed ? 'line-through text-slate-600' : 'text-slate-200'
-                                    }`}>
-                                      {item.title}
-                                    </div>
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                      <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
-                                      <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Checkbox */}
-                                  <input
-                                    type="checkbox"
-                                    checked={item.completed}
-                                    onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed, item.start_time, item.end_time, item.title)}
-                                    className="custom-checkbox flex-shrink-0"
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Break / Lunch block */}
-                        {group.separator && (
-                          <div className={`rounded-xl px-4 py-3 border ${
-                            group.separator.item_type === 'lunch'
+                <div className="space-y-2">
+                  {(currentSchedule.items || []).map((item) => {
+                    if (item.item_type === 'break' || item.item_type === 'lunch') {
+                      return (
+                        <div
+                          key={item.id}
+                          className={`rounded-xl px-4 py-3 border ${
+                            item.item_type === 'lunch'
                               ? 'bg-[#b8a078]/[0.04] border-[#b8a078]/10'
                               : 'bg-white/[0.02] border-white/[0.04]'
-                          }`}>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-sm font-medium ${
-                                  group.separator.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
-                                }`}>
-                                  {group.separator.title}
-                                </span>
-                              </div>
-                              <span className="text-[11px] text-slate-600 font-mono">
-                                {group.separator.start_time} - {group.separator.end_time}
-                              </span>
-                            </div>
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-sm font-medium ${
+                              item.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
+                            }`}>
+                              {item.title}
+                            </span>
+                            <span className="text-[11px] text-slate-600 font-mono">
+                              {item.start_time} - {item.end_time}
+                            </span>
                           </div>
-                        )}
+                        </div>
+                      );
+                    }
+
+                    const priority = item.task?.priority || 'low';
+                    const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={`flex items-center gap-3 px-4 py-3 bg-white/[0.03] border border-white/[0.06] rounded-xl transition-all duration-150 hover:bg-white/[0.05] ${
+                          item.completed ? 'opacity-40' : ''
+                        }`}
+                      >
+                        <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-sm font-medium ${
+                            item.completed ? 'line-through text-slate-600' : 'text-slate-200'
+                          }`}>
+                            {item.title}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
+                            <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
+                          </div>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={item.completed}
+                          onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed, item.start_time, item.end_time, item.title)}
+                          className="custom-checkbox flex-shrink-0"
+                        />
                       </div>
-                    ));
-                  })()}
+                    );
+                  })}
                 </div>
               )}
             </div>
