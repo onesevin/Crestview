@@ -123,6 +123,9 @@ export default function Dashboard() {
       .order('start_time', { referencedTable: 'schedule_items' })
       .single();
 
+    if (data?.items) {
+      data.items = data.items.filter((i: any) => i.title !== '');
+    }
     setCurrentSchedule(data);
   };
 
@@ -195,7 +198,7 @@ export default function Dashboard() {
       .single();
 
     if (todaySchedule) {
-      const existingItems = todaySchedule.items || [];
+      const existingItems = (todaySchedule.items || []).filter((i: any) => i.title !== '');
       let lastEndTime = '09:00';
       for (const item of existingItems) {
         if (item.end_time > lastEndTime) {
@@ -275,7 +278,7 @@ export default function Dashboard() {
     if (rolloverNotification.autoAddedItemIds.length > 0) {
       await supabase
         .from('schedule_items')
-        .delete()
+        .update({ task_id: null, item_type: 'break', title: '', completed: true })
         .in('id', rolloverNotification.autoAddedItemIds);
     }
 
@@ -381,10 +384,12 @@ export default function Dashboard() {
 
       movedItem = updated;
 
-      // Delete any extra duplicates (shouldn't exist, but safety)
+      // Neutralize any extra duplicates (shouldn't exist, but safety)
       if (existingTaskItems.length > 1) {
         const extraIds = existingTaskItems.slice(1).map(i => i.id);
-        await supabase.from('schedule_items').delete().in('id', extraIds);
+        await supabase.from('schedule_items')
+          .update({ task_id: null, item_type: 'break', title: '', completed: true })
+          .in('id', extraIds);
       }
     } else {
       // No existing item — insert a new one
@@ -408,7 +413,7 @@ export default function Dashboard() {
     if (!movedItem) return;
 
     // Build ordered list — exclude the moved item from existing, then insert at position or append
-    const existingItems = (schedule.items || []).filter((i: any) => i.id !== movedItem.id);
+    const existingItems = (schedule.items || []).filter((i: any) => i.id !== movedItem.id && i.title !== '');
     let orderedItems: any[];
 
     if (insertAtItemId) {
@@ -460,7 +465,7 @@ export default function Dashboard() {
     }
 
     // Calculate new position (append to end of target day)
-    const targetItems = (targetSchedule.items || []).filter((ti: any) => ti.id !== item.id);
+    const targetItems = (targetSchedule.items || []).filter((ti: any) => ti.id !== item.id && ti.title !== '');
     let lastEndTime = '09:00';
     for (const ti of targetItems) {
       if (ti.end_time > lastEndTime) lastEndTime = ti.end_time;
@@ -682,7 +687,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
     await supabase
       .from('schedule_items')
-      .delete()
+      .update({ task_id: null, item_type: 'break', title: '', completed: true })
       .eq('task_id', taskId);
 
     await supabase
@@ -951,10 +956,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .eq('user_id', user.id)
       .single();
 
-    if (scheduleRow) {
-      // Clear existing items for this schedule
-      await supabase.from('schedule_items').delete().eq('schedule_id', scheduleRow.id);
-    } else {
+    if (!scheduleRow) {
       const { data: newSchedule, error } = await supabase
         .from('schedules')
         .insert({
@@ -971,20 +973,28 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
     const scheduleId = scheduleRow!.id;
 
-    // Move any existing schedule_items for these tasks to this schedule
-    // (enforces one-task-per-day by reassigning rather than deleting)
+    // Fetch existing items for this schedule (we'll reuse rows via UPDATE instead of DELETE)
+    const { data: existingItems } = await supabase
+      .from('schedule_items')
+      .select('id')
+      .eq('schedule_id', scheduleId)
+      .order('start_time');
+
+    // Neutralize stale items for these tasks on OTHER schedules (enforces one-task-per-day)
     const taskIds = dayTasks.map(t => t.id);
     const { data: staleItems } = await supabase
       .from('schedule_items')
       .select('id')
-      .in('task_id', taskIds);
+      .in('task_id', taskIds)
+      .neq('schedule_id', scheduleId);
 
     if (staleItems && staleItems.length > 0) {
-      // Delete stale items from other schedules (these tasks will get fresh items below)
-      await supabase
-        .from('schedule_items')
-        .delete()
-        .in('id', staleItems.map(i => i.id));
+      for (const stale of staleItems) {
+        await supabase
+          .from('schedule_items')
+          .update({ task_id: null, item_type: 'break', title: '', completed: true })
+          .eq('id', stale.id);
+      }
     }
 
     const taskDescriptions = dayTasks.map(t =>
@@ -1066,7 +1076,27 @@ Return ONLY valid JSON:
       };
     });
 
-    await supabase.from('schedule_items').insert(items);
+    // Overwrite existing rows with new data via UPDATE; INSERT extras; neutralize leftovers
+    // (Uses UPDATE instead of DELETE to avoid Supabase RLS issues)
+    const oldItems = existingItems || [];
+    for (let i = 0; i < items.length; i++) {
+      if (i < oldItems.length) {
+        await supabase
+          .from('schedule_items')
+          .update(items[i])
+          .eq('id', oldItems[i].id);
+      } else {
+        await supabase.from('schedule_items').insert(items[i]);
+      }
+    }
+
+    // Neutralize any leftover old items (more old rows than new blocks)
+    for (let i = items.length; i < oldItems.length; i++) {
+      await supabase
+        .from('schedule_items')
+        .update({ task_id: null, item_type: 'break', title: '', start_time: '23:59', end_time: '23:59', completed: true })
+        .eq('id', oldItems[i].id);
+    }
 
     // Mark these tasks as scheduled
     await supabase

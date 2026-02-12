@@ -98,23 +98,40 @@ export async function saveSchedule(
 
   if (scheduleError) throw scheduleError;
 
-  // Delete existing items
-  await supabase
+  // Fetch existing items (reuse rows via UPDATE instead of DELETE to avoid RLS issues)
+  const { data: existingItems } = await supabase
     .from('schedule_items')
-    .delete()
-    .eq('schedule_id', schedule.id);
+    .select('id')
+    .eq('schedule_id', schedule.id)
+    .order('start_time');
 
-  // Insert new items
-  const { error: itemsError } = await supabase
-    .from('schedule_items')
-    .insert(
-      items.map(item => ({
-        schedule_id: schedule.id,
-        ...item
-      }))
-    );
+  const newItems = items.map(item => ({
+    schedule_id: schedule.id,
+    ...item
+  }));
 
-  if (itemsError) throw itemsError;
+  const oldItems = existingItems || [];
+  for (let i = 0; i < newItems.length; i++) {
+    if (i < oldItems.length) {
+      await supabase
+        .from('schedule_items')
+        .update(newItems[i])
+        .eq('id', oldItems[i].id);
+    } else {
+      const { error: itemsError } = await supabase
+        .from('schedule_items')
+        .insert(newItems[i]);
+      if (itemsError) throw itemsError;
+    }
+  }
+
+  // Neutralize leftover old items
+  for (let i = newItems.length; i < oldItems.length; i++) {
+    await supabase
+      .from('schedule_items')
+      .update({ task_id: null, item_type: 'break', title: '', start_time: '23:59', end_time: '23:59', completed: true })
+      .eq('id', oldItems[i].id);
+  }
 
   // Update task statuses
   const taskIds = items

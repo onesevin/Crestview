@@ -229,14 +229,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // First, delete any schedule items that reference this task
+    // Neutralize any schedule items that reference this task (UPDATE instead of DELETE for RLS)
     const { error: scheduleItemsError } = await supabase
       .from('schedule_items')
-      .delete()
+      .update({ task_id: null, item_type: 'break', title: '', completed: true })
       .eq('task_id', taskId);
 
     if (scheduleItemsError) {
-      console.error('Error deleting schedule items:', scheduleItemsError);
+      console.error('Error neutralizing schedule items:', scheduleItemsError);
       // Continue anyway - we still want to delete the task
     }
 
