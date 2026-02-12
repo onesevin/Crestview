@@ -77,9 +77,15 @@ export default function Dashboard() {
         max_tokens: 4000,
         messages: [{
           role: 'user',
-          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low').
+          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), due_date (optional string in YYYY-MM-DD format or null).
 
-CRITICAL: Preserve the EXACT original wording. Do not paraphrase, shorten, or rewrite task titles.
+Today's date is ${format(new Date(), 'yyyy-MM-dd')} (${format(new Date(), 'EEEE')}).
+
+RULES:
+- Preserve the EXACT original wording for the title. Do not paraphrase, shorten, or rewrite task titles. Strip any deadline phrase from the title (e.g. "Review PRs by Wednesday" → title: "Review PRs", due_date: next Wednesday).
+- Extract due dates from natural language: "by Wednesday", "due Friday", "before March 5", "tomorrow", etc.
+- Resolve relative dates (e.g. "Wednesday" means the NEXT upcoming Wednesday relative to today).
+- If no deadline is mentioned, set due_date to null.
 
 Input:
 ${input}
@@ -155,6 +161,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             title: task.title,
             description: task.description || null,
             priority: task.priority || 'medium',
+            due_date: task.due_date || null,
             status: 'pending'
           }))
         )
@@ -197,6 +204,15 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await supabase
       .from('tasks')
       .update({ priority })
+      .eq('id', taskId);
+
+    await loadPendingTasks();
+  };
+
+  const handleDueDateChange = async (taskId: string, newDate: string) => {
+    await supabase
+      .from('tasks')
+      .update({ due_date: newDate || null })
       .eq('id', taskId);
 
     await loadPendingTasks();
@@ -402,17 +418,54 @@ Return ONLY valid JSON:
         return;
       }
 
-      // Sort and distribute tasks
-      const highPriority = tasks.filter(t => t.priority === 'high');
-      const mediumPriority = tasks.filter(t => t.priority === 'medium');
-      const lowPriority = tasks.filter(t => t.priority === 'low');
-      const sortedTasks = [...highPriority, ...mediumPriority, ...lowPriority];
+      // Separate tasks by due date presence
+      const todayStr = format(today, 'yyyy-MM-dd');
+      const tasksWithDueDate = tasks.filter(t => t.due_date);
+      const tasksWithoutDueDate = tasks.filter(t => !t.due_date);
 
       const tasksPerDay: Task[][] = remainingDates.map(() => []);
-      sortedTasks.forEach((task, index) => {
+      const remainingDateStrs = remainingDates.map(d => format(d, 'yyyy-MM-dd'));
+
+      // Assign tasks WITH due dates to the latest available weekday <= their due date
+      const sortByPriority = (a: Task, b: Task) => {
+        const order = { high: 0, medium: 1, low: 2 };
+        return order[a.priority] - order[b.priority];
+      };
+      tasksWithDueDate.sort(sortByPriority);
+
+      for (const task of tasksWithDueDate) {
+        const dueDate = task.due_date!;
+        let assignedIndex = -1;
+
+        if (dueDate <= todayStr) {
+          // Due today or past — assign to earliest available day
+          assignedIndex = 0;
+        } else {
+          // Find the latest remaining day that is <= due date
+          for (let j = remainingDateStrs.length - 1; j >= 0; j--) {
+            if (remainingDateStrs[j] <= dueDate) {
+              assignedIndex = j;
+              break;
+            }
+          }
+          // If due date is before all remaining days, assign to earliest
+          if (assignedIndex === -1) assignedIndex = 0;
+        }
+
+        tasksPerDay[assignedIndex].push(task);
+      }
+
+      // Distribute tasks WITHOUT due dates round-robin, priority-sorted
+      const sortedNoDue = [...tasksWithoutDueDate].sort(sortByPriority);
+      sortedNoDue.forEach((task, index) => {
         const dayIndex = index % remainingDates.length;
         tasksPerDay[dayIndex].push(task);
       });
+
+      // Sort each day's tasks by priority
+      for (const dayTasks of tasksPerDay) {
+        dayTasks.sort(sortByPriority);
+      }
 
       // Generate schedule for each day
       for (let i = 0; i < remainingDates.length; i++) {
@@ -440,7 +493,7 @@ Return ONLY valid JSON:
 
   const generateScheduleForDay = async (date: string, dayTasks: Task[], hours: number) => {
     const taskDescriptions = dayTasks.map(t =>
-      `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
+      `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
     );
 
     const response = await fetch('/api/claude', {
@@ -462,8 +515,9 @@ REQUIREMENTS:
 - Include 30min lunch break around midday
 - Include 5-10min breaks every 60-90min
 - High-priority tasks in morning
+- Tasks with imminent due dates should be prioritized even over other high-priority tasks
 - DO NOT combine tasks - each task gets its own block
-- Use EXACT task titles from the list above
+- Use EXACT task titles from the list above (without the [Priority] or [Due] tags)
 
 Return ONLY valid JSON:
 {
@@ -536,7 +590,7 @@ Return ONLY valid JSON:
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#0B0F1A] flex items-center justify-center">
+      <div className="min-h-screen bg-[#050507] flex items-center justify-center">
         <div className="text-center animate-fade-in">
           <div className="inline-block mb-6">
             <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
@@ -553,7 +607,7 @@ Return ONLY valid JSON:
   const weekDates = getWeekDates();
 
   return (
-    <div className="min-h-screen bg-[#0B0F1A] text-white relative">
+    <div className="min-h-screen bg-[#050507] text-white relative">
       {/* Background gradients */}
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(99,102,241,0.08)_0%,_transparent_50%)] pointer-events-none" />
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.06)_0%,_transparent_50%)] pointer-events-none" />
@@ -680,7 +734,7 @@ Return ONLY valid JSON:
                                 {task.description}
                               </div>
                             )}
-                            <div className="flex gap-2 items-center mt-2.5">
+                            <div className="flex gap-2 items-center mt-2.5 flex-wrap">
                               <select
                                 value={task.priority}
                                 onChange={(e) => handleChangePriority(task.id, e.target.value as any)}
@@ -694,7 +748,18 @@ Return ONLY valid JSON:
                                 <span className={`w-1.5 h-1.5 rounded-full ${pc.dot}`} />
                                 <span className={`text-xs ${pc.text}`}>{pc.label}</span>
                               </span>
+                              <input
+                                type="date"
+                                value={task.due_date || ''}
+                                onChange={(e) => handleDueDateChange(task.id, e.target.value)}
+                                className="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all [color-scheme:dark]"
+                              />
                             </div>
+                            {task.due_date && (
+                              <div className="text-xs text-slate-400 mt-1.5">
+                                Due {format(new Date(task.due_date + 'T00:00:00'), 'EEE, MMM d')}
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => handleDeleteTask(task.id)}
@@ -772,7 +837,7 @@ Return ONLY valid JSON:
                         >
                           {/* Timeline dot */}
                           <div className="relative z-10 flex-shrink-0 mt-1.5">
-                            <div className={`w-3 h-3 rounded-full ${dotColor} ring-4 ring-[#0B0F1A]`} />
+                            <div className={`w-3 h-3 rounded-full ${dotColor} ring-4 ring-[#050507]`} />
                           </div>
 
                           {/* Content */}

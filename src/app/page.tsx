@@ -18,7 +18,7 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0B0F1A]">
+    <div className="min-h-screen flex items-center justify-center bg-[#050507]">
       <div className="text-center animate-fade-in">
         <div className="inline-block mb-6">
           <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
