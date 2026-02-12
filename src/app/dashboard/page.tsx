@@ -255,16 +255,30 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       if (shouldRegenerate) {
         setLoading(true);
         try {
-          // Delete existing schedule
-          await supabase
+          // Delete existing schedule items first
+          const { error: itemsError } = await supabase
             .from('schedule_items')
             .delete()
             .eq('schedule_id', existingSchedule.id);
           
-          await supabase
+          if (itemsError) {
+            console.error('Error deleting schedule items:', itemsError);
+            throw itemsError;
+          }
+          
+          // Then delete the schedule
+          const { error: schedError } = await supabase
             .from('schedules')
             .delete()
             .eq('id', existingSchedule.id);
+          
+          if (schedError) {
+            console.error('Error deleting schedule:', schedError);
+            throw schedError;
+          }
+          
+          // Wait a moment to ensure delete completes
+          await new Promise(resolve => setTimeout(resolve, 500));
           
           // Get tasks for this day from the old schedule or use current tasks
           const tasksToSchedule = tasks.length > 0 ? tasks : [];
