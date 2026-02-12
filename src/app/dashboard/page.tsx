@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Task, Schedule } from '@/types';
+import { Task, Schedule, ScheduleItem } from '@/types';
 import { format, addDays, startOfWeek, isWeekend, isToday } from 'date-fns';
 
 export default function Dashboard() {
@@ -262,49 +262,33 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .eq('user_id', user.id)
       .single();
 
-    if (existingSchedule) {
-      // Schedule exists, ask if they want to regenerate
-      const shouldRegenerate = confirm(
-        `This day already has a schedule. Regenerate with ${newHours} hours?`
+    if (!existingSchedule) return;
+
+    const tasksToSchedule = tasks.length > 0 ? tasks : [];
+    if (tasksToSchedule.length === 0) return;
+
+    setLoading(true);
+    try {
+      // Delete old schedule items
+      await supabase
+        .from('schedule_items')
+        .delete()
+        .eq('schedule_id', existingSchedule.id);
+
+      // Regenerate with new hours
+      const taskDescriptions = tasksToSchedule.map(t =>
+        `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
       );
 
-      if (shouldRegenerate) {
-        setLoading(true);
-        try {
-          // Delete old schedule items
-          const { error: deleteItemsError } = await supabase
-            .from('schedule_items')
-            .delete()
-            .eq('schedule_id', existingSchedule.id);
-
-          if (deleteItemsError) {
-            console.error('Error deleting schedule items:', deleteItemsError);
-            throw deleteItemsError;
-          }
-
-          // Get tasks to schedule
-          const tasksToSchedule = tasks.length > 0 ? tasks : [];
-
-          if (tasksToSchedule.length === 0) {
-            alert('No tasks available to schedule');
-            setLoading(false);
-            return;
-          }
-
-          // Generate new schedule with AI
-          const taskDescriptions = tasksToSchedule.map(t =>
-            `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
-          );
-
-          const response = await fetch('/api/claude', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
-              max_tokens: 4000,
-              messages: [{
-                role: 'user',
-                content: `Generate a ${newHours}-hour work schedule for ${dateStr}.
+      const response = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4000,
+          messages: [{
+            role: 'user',
+            content: `Generate a ${newHours}-hour work schedule for ${dateStr}.
 
 TASKS:
 ${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
@@ -315,8 +299,9 @@ REQUIREMENTS:
 - Include 30min lunch break around midday
 - Include 5-10min breaks every 60-90min
 - High-priority tasks in morning
+- Tasks with imminent due dates should be prioritized even over other high-priority tasks
 - DO NOT combine tasks - each task gets its own block
-- Use EXACT task titles from the list above
+- Use EXACT task titles from the list above (without the [Priority] or [Due] tags)
 
 Return ONLY valid JSON:
 {
@@ -326,71 +311,50 @@ Return ONLY valid JSON:
     {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
-              }]
-            })
-          });
+          }]
+        })
+      });
 
-          const data = await response.json();
-          const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
-          const schedule = JSON.parse(text);
+      const data = await response.json();
+      const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
+      const schedule = JSON.parse(text);
 
-          // Update existing schedule with new data
-          const { error: updateError } = await supabase
-            .from('schedules')
-            .update({
-              schedule_data: {
-                total_hours: newHours,
-                work_blocks: schedule.blocks.filter((b: any) => b.type === 'task').length,
-                break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length
-              }
-            })
-            .eq('id', existingSchedule.id);
-
-          if (updateError) {
-            console.error('Error updating schedule:', updateError);
-            throw updateError;
+      await supabase
+        .from('schedules')
+        .update({
+          schedule_data: {
+            total_hours: newHours,
+            work_blocks: schedule.blocks.filter((b: any) => b.type === 'task').length,
+            break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length
           }
+        })
+        .eq('id', existingSchedule.id);
 
-          // Create new schedule items
-          const items = schedule.blocks.map((block: any) => {
-            const matchingTask = tasksToSchedule.find(t =>
-              block.title.toLowerCase().includes(t.title.toLowerCase()) ||
-              t.title.toLowerCase().includes(block.title.toLowerCase())
-            );
+      const items = schedule.blocks.map((block: any) => {
+        const matchingTask = tasksToSchedule.find(t =>
+          block.title.toLowerCase().includes(t.title.toLowerCase()) ||
+          t.title.toLowerCase().includes(block.title.toLowerCase())
+        );
+        return {
+          schedule_id: existingSchedule.id,
+          task_id: matchingTask?.id || null,
+          start_time: block.start_time,
+          end_time: block.end_time,
+          item_type: block.type,
+          title: block.title,
+          completed: false
+        };
+      });
 
-            return {
-              schedule_id: existingSchedule.id,
-              task_id: matchingTask?.id || null,
-              start_time: block.start_time,
-              end_time: block.end_time,
-              item_type: block.type,
-              title: block.title,
-              completed: false
-            };
-          });
+      await supabase.from('schedule_items').insert(items);
 
-          const { error: insertError } = await supabase
-            .from('schedule_items')
-            .insert(items);
-
-          if (insertError) {
-            console.error('Error inserting schedule items:', insertError);
-            throw insertError;
-          }
-
-          // Reload schedule
-          if (format(selectedDate, 'yyyy-MM-dd') === dateStr) {
-            await loadScheduleForDate(selectedDate);
-          }
-
-          alert(`Schedule regenerated with ${newHours} hours!`);
-        } catch (error) {
-          console.error('Error regenerating schedule:', error);
-          alert('Failed to regenerate schedule');
-        } finally {
-          setLoading(false);
-        }
+      if (format(selectedDate, 'yyyy-MM-dd') === dateStr) {
+        await loadScheduleForDate(selectedDate);
       }
+    } catch (error) {
+      console.error('Error regenerating schedule:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -583,9 +547,9 @@ Return ONLY valid JSON:
   };
 
   const priorityConfig = {
-    high: { dot: 'bg-[#d4b896]', text: 'text-[#d4b896]', label: 'High', border: 'border-l-[#d4b896]' },
-    medium: { dot: 'bg-[#9a8978]', text: 'text-[#9a8978]', label: 'Medium', border: 'border-l-[#9a8978]' },
-    low: { dot: 'bg-[#5c534a]', text: 'text-[#5c534a]', label: 'Low', border: 'border-l-[#5c534a]' },
+    high: { dot: 'bg-[#c49286]', text: 'text-[#c49286]', label: 'High', border: 'border-l-[#c49286]' },
+    medium: { dot: 'bg-[#b8a078]', text: 'text-[#b8a078]', label: 'Medium', border: 'border-l-[#b8a078]' },
+    low: { dot: 'bg-[#8a967e]', text: 'text-[#8a967e]', label: 'Low', border: 'border-l-[#8a967e]' },
   };
 
   if (!user) {
@@ -751,9 +715,9 @@ Return ONLY valid JSON:
                           {task.due_date ? (
                             <label className={`relative text-[11px] px-1.5 py-0.5 rounded cursor-pointer transition-all ${
                               isOverdue
-                                ? 'bg-[#d4b896]/10 text-[#d4b896] border border-[#d4b896]/20'
+                                ? 'bg-[#c49286]/10 text-[#c49286] border border-[#c49286]/20'
                                 : isDueToday
-                                ? 'bg-[#9a8978]/10 text-[#9a8978] border border-[#9a8978]/20'
+                                ? 'bg-[#b8a078]/10 text-[#b8a078] border border-[#b8a078]/20'
                                 : 'bg-white/[0.03] text-slate-500 border border-white/[0.06] hover:border-white/10'
                             }`}>
                               {isOverdue ? 'Overdue' : isDueToday ? 'Today' : format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
@@ -811,73 +775,90 @@ Return ONLY valid JSON:
                   <p className="text-xs text-slate-700 mt-1">Add tasks and generate a schedule to get started</p>
                 </div>
               ) : (
-                <div className="relative">
-                  {/* Timeline line */}
-                  <div className="absolute left-[23px] top-2 bottom-2 w-px bg-white/[0.06]" />
+                <div className="space-y-3">
+                  {(() => {
+                    // Group items into blocks separated by breaks/lunch
+                    const items = currentSchedule.items || [];
+                    const groups: { tasks: ScheduleItem[]; separator?: ScheduleItem }[] = [];
+                    let currentGroup: ScheduleItem[] = [];
 
-                  <div className="space-y-1">
-                    {currentSchedule.items?.map((item, index) => {
-                      const priority = item.task?.priority || 'low';
-                      const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
+                    items.forEach((item) => {
+                      if (item.item_type === 'break' || item.item_type === 'lunch') {
+                        if (currentGroup.length > 0) {
+                          groups.push({ tasks: currentGroup, separator: item });
+                          currentGroup = [];
+                        } else {
+                          groups.push({ tasks: [], separator: item });
+                        }
+                      } else {
+                        currentGroup.push(item);
+                      }
+                    });
+                    if (currentGroup.length > 0) {
+                      groups.push({ tasks: currentGroup });
+                    }
 
-                      const isTask = item.item_type === 'task';
-                      const isLunch = item.item_type === 'lunch';
-                      const isBreak = item.item_type === 'break';
+                    return groups.map((group, groupIndex) => (
+                      <div key={groupIndex}>
+                        {/* Task block */}
+                        {group.tasks.length > 0 && (
+                          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+                            {group.tasks.map((item, itemIndex) => {
+                              const priority = item.task?.priority || 'low';
+                              const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
 
-                      const dotColor = isTask
-                        ? (priority === 'high' ? 'bg-[#d4b896]' : priority === 'medium' ? 'bg-[#9a8978]' : 'bg-[#5c534a]')
-                        : 'bg-zinc-800';
+                              return (
+                                <div
+                                  key={item.id}
+                                  className={`flex items-center gap-3 px-4 py-3 transition-all duration-150 hover:bg-white/[0.02] ${
+                                    itemIndex > 0 ? 'border-t border-white/[0.04]' : ''
+                                  } ${item.completed ? 'opacity-40' : ''}`}
+                                >
+                                  {/* Priority dot */}
+                                  <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
 
-                      return (
-                        <div
-                          key={item.id}
-                          className={`relative flex items-start gap-4 pl-2 py-2.5 pr-3 rounded-lg transition-all duration-150 ${
-                            isTask ? 'hover:bg-white/[0.02]' : ''
-                          } ${item.completed ? 'opacity-40' : ''}`}
-                          style={{ animationDelay: `${index * 50}ms` }}
-                        >
-                          {/* Timeline dot */}
-                          <div className="relative z-10 flex-shrink-0 mt-1.5">
-                            <div className={`w-2.5 h-2.5 rounded-full ${dotColor} ring-4 ring-[#050507]`} />
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className={`text-sm font-medium ${
+                                      item.completed ? 'line-through text-slate-600' : 'text-slate-200'
+                                    }`}>
+                                      {item.title}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
+                                      <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Checkbox */}
+                                  <input
+                                    type="checkbox"
+                                    checked={item.completed}
+                                    onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
+                                    className="custom-checkbox flex-shrink-0"
+                                  />
+                                </div>
+                              );
+                            })}
                           </div>
+                        )}
 
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 text-xs text-slate-600 mb-0.5">
-                              <span className="font-mono">{item.start_time}</span>
-                              <span className="text-slate-700">-</span>
-                              <span className="font-mono">{item.end_time}</span>
-                              {isTask && item.task && (
-                                <span className={`flex items-center gap-1 ${pc.text}`}>
-                                  <span className={`w-1 h-1 rounded-full ${pc.dot}`} />
-                                  {pc.label}
-                                </span>
-                              )}
-                              {(isLunch || isBreak) && <span className="text-slate-700">{isLunch ? 'Lunch' : 'Break'}</span>}
-                            </div>
-                            <div className={`font-medium text-sm ${
-                              item.completed ? 'line-through text-slate-600' :
-                              isTask ? 'text-slate-200' : 'text-slate-500'
-                            }`}>
-                              {item.title}
-                            </div>
+                        {/* Break / Lunch separator */}
+                        {group.separator && (
+                          <div className="flex items-center gap-3 px-2 py-2">
+                            <div className="h-px flex-1 bg-white/[0.04]" />
+                            <span className="text-[11px] text-slate-700 font-mono">
+                              {group.separator.start_time} - {group.separator.end_time}
+                            </span>
+                            <span className="text-[11px] text-slate-600">
+                              {group.separator.item_type === 'lunch' ? 'Lunch' : 'Break'}
+                            </span>
+                            <div className="h-px flex-1 bg-white/[0.04]" />
                           </div>
-
-                          {/* Checkbox */}
-                          {isTask && (
-                            <div className="flex-shrink-0 mt-1">
-                              <input
-                                type="checkbox"
-                                checked={item.completed}
-                                onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
-                                className="custom-checkbox"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                        )}
+                      </div>
+                    ));
+                  })()}
                 </div>
               )}
             </div>
