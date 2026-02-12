@@ -14,6 +14,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [workHours, setWorkHours] = useState<Record<string, number>>({});
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
   const [rolloverNotification, setRolloverNotification] = useState<{
     count: number;
     taskTitles: string[];
@@ -155,7 +157,7 @@ export default function Dashboard() {
         max_tokens: 4000,
         messages: [{
           role: 'user',
-          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), due_date (optional string in YYYY-MM-DD format or null).
+          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), due_date (optional string in YYYY-MM-DD format or null), category ('deep_focus'|'admin'|'quick'), estimated_minutes (number).
 
 Today's date is ${format(new Date(), 'yyyy-MM-dd')} (${format(new Date(), 'EEEE')}).
 
@@ -164,6 +166,13 @@ RULES:
 - Extract due dates from natural language: "by Wednesday", "due Friday", "before March 5", "tomorrow", etc.
 - Resolve relative dates (e.g. "Wednesday" means the NEXT upcoming Wednesday relative to today).
 - If no deadline is mentioned, set due_date to null.
+
+CATEGORY RULES:
+- deep_focus: coding, writing, design, research, anything requiring sustained concentration
+- admin: emails, Slack, meetings, approvals, status updates, scheduling
+- quick: reviews, follow-ups, small fixes, replies — anything under ~15 min
+
+ESTIMATED_MINUTES: Your best guess at duration. Use values like 5, 10, 15, 30, 45, 60, 90, 120.
 
 Input:
 ${input}
@@ -239,6 +248,8 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             title: task.title,
             description: task.description || null,
             priority: task.priority || 'medium',
+            category: task.category || null,
+            estimated_minutes: task.estimated_minutes || null,
             due_date: task.due_date || null,
             status: 'pending'
           }))
@@ -293,6 +304,32 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .update({ due_date: newDate || null })
       .eq('id', taskId);
 
+    await loadPendingTasks();
+  };
+
+  const handleTitleEdit = async (taskId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    await supabase
+      .from('tasks')
+      .update({ title: newTitle.trim() })
+      .eq('id', taskId);
+    setEditingTaskId(null);
+    await loadPendingTasks();
+  };
+
+  const handleCategoryChange = async (taskId: string, category: 'deep_focus' | 'admin' | 'quick') => {
+    await supabase
+      .from('tasks')
+      .update({ category })
+      .eq('id', taskId);
+    await loadPendingTasks();
+  };
+
+  const handleEstimatedMinutesChange = async (taskId: string, minutes: number) => {
+    await supabase
+      .from('tasks')
+      .update({ estimated_minutes: minutes })
+      .eq('id', taskId);
     await loadPendingTasks();
   };
 
@@ -355,7 +392,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
       // Regenerate with new hours
       const taskDescriptions = tasksToSchedule.map(t =>
-        `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
+        `${t.title} [Priority: ${t.priority}]${t.category ? ` [Category: ${t.category}]` : ''}${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
       );
 
       const response = await fetch('/api/claude', {
@@ -371,21 +408,28 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 TASKS:
 ${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
-REQUIREMENTS:
+STRUCTURE THE DAY AS FOLLOWS:
+1. DEEP FOCUS block(s) — morning, uninterrupted 60-120min blocks for deep_focus tasks
+2. ADMIN/MOTION block — batch admin tasks together, typically mid-day or after lunch
+3. QUICK FOLLOW-UPS block — group quick tasks into a single sweep block (15-30min total)
+4. Include 30min lunch break around midday
+5. Include 5-10min breaks between themed blocks
+
+RULES:
 - Total work time: ${newHours} hours
 - Start: 9:00 AM
-- Include 30min lunch break around midday
-- Include 5-10min breaks every 60-90min
-- High-priority tasks in morning
-- Tasks with imminent due dates should be prioritized even over other high-priority tasks
-- DO NOT combine tasks - each task gets its own block
-- Use EXACT task titles from the list above (without the [Priority] or [Due] tags)
+- Use each task's estimated duration for block sizing
+- Tasks with imminent due dates should be prioritized
+- DO NOT combine tasks — each task gets its own time slot within its block
+- Quick tasks can share a themed block but each gets its own line item
+- Use EXACT task titles from the list above (without the [Priority], [Category], [Est], or [Due] tags)
+- For break blocks between themed sections, use title format: "Break — [next section type]" e.g. "Break — Admin block"
 
 Return ONLY valid JSON:
 {
   "blocks": [
-    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
-    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Short break", "estimated_duration": 10},
+    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "category": "deep_focus", "estimated_duration": 90},
+    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break — Admin block", "estimated_duration": 10},
     {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
@@ -548,7 +592,7 @@ Return ONLY valid JSON:
     }
 
     const taskDescriptions = dayTasks.map(t =>
-      `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
+      `${t.title} [Priority: ${t.priority}]${t.category ? ` [Category: ${t.category}]` : ''}${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
     );
 
     const response = await fetch('/api/claude', {
@@ -564,21 +608,28 @@ Return ONLY valid JSON:
 TASKS:
 ${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
-REQUIREMENTS:
+STRUCTURE THE DAY AS FOLLOWS:
+1. DEEP FOCUS block(s) — morning, uninterrupted 60-120min blocks for deep_focus tasks
+2. ADMIN/MOTION block — batch admin tasks together, typically mid-day or after lunch
+3. QUICK FOLLOW-UPS block — group quick tasks into a single sweep block (15-30min total)
+4. Include 30min lunch break around midday
+5. Include 5-10min breaks between themed blocks
+
+RULES:
 - Total work time: ${hours} hours
 - Start: 9:00 AM
-- Include 30min lunch break around midday
-- Include 5-10min breaks every 60-90min
-- High-priority tasks in morning
-- Tasks with imminent due dates should be prioritized even over other high-priority tasks
-- DO NOT combine tasks - each task gets its own block
-- Use EXACT task titles from the list above (without the [Priority] or [Due] tags)
+- Use each task's estimated duration for block sizing
+- Tasks with imminent due dates should be prioritized
+- DO NOT combine tasks — each task gets its own time slot within its block
+- Quick tasks can share a themed block but each gets its own line item
+- Use EXACT task titles from the list above (without the [Priority], [Category], [Est], or [Due] tags)
+- For break blocks between themed sections, use title format: "Break — [next section type]" e.g. "Break — Admin block"
 
 Return ONLY valid JSON:
 {
   "blocks": [
-    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
-    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Short break", "estimated_duration": 10},
+    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "category": "deep_focus", "estimated_duration": 90},
+    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break — Admin block", "estimated_duration": 10},
     {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
@@ -641,6 +692,12 @@ Return ONLY valid JSON:
     high: { dot: 'bg-[#c49286]', text: 'text-[#c49286]', label: 'High', border: 'border-l-[#c49286]' },
     medium: { dot: 'bg-[#b8a078]', text: 'text-[#b8a078]', label: 'Medium', border: 'border-l-[#b8a078]' },
     low: { dot: 'bg-[#8a967e]', text: 'text-[#8a967e]', label: 'Low', border: 'border-l-[#8a967e]' },
+  };
+
+  const categoryConfig = {
+    deep_focus: { color: '#c49286', label: 'Deep Focus', bg: 'bg-[#c49286]/10', text: 'text-[#c49286]', border: 'border-[#c49286]/20' },
+    admin: { color: '#b8a078', label: 'Admin', bg: 'bg-[#b8a078]/10', text: 'text-[#b8a078]', border: 'border-[#b8a078]/20' },
+    quick: { color: '#8a967e', label: 'Quick', bg: 'bg-[#8a967e]/10', text: 'text-[#8a967e]', border: 'border-[#8a967e]/20' },
   };
 
   if (!user) {
@@ -798,8 +855,10 @@ Return ONLY valid JSON:
                 ) : (
                   tasks.map((task) => {
                     const pc = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig.medium;
+                    const cc = task.category ? categoryConfig[task.category as keyof typeof categoryConfig] : null;
                     const isOverdue = task.due_date && task.due_date < format(new Date(), 'yyyy-MM-dd');
                     const isDueToday = task.due_date && task.due_date === format(new Date(), 'yyyy-MM-dd');
+                    const isEditing = editingTaskId === task.id;
                     return (
                       <div
                         key={task.id}
@@ -807,7 +866,26 @@ Return ONLY valid JSON:
                       >
                         <div className="flex justify-between items-start gap-2">
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-slate-200 text-sm leading-snug">{task.title}</div>
+                            {isEditing ? (
+                              <input
+                                autoFocus
+                                value={editingTitle}
+                                onChange={(e) => setEditingTitle(e.target.value)}
+                                onBlur={() => handleTitleEdit(task.id, editingTitle)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleTitleEdit(task.id, editingTitle);
+                                  if (e.key === 'Escape') setEditingTaskId(null);
+                                }}
+                                className="w-full font-medium text-slate-200 text-sm leading-snug bg-white/[0.05] border border-white/[0.1] rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-white/20"
+                              />
+                            ) : (
+                              <div
+                                className="font-medium text-slate-200 text-sm leading-snug cursor-text hover:text-white transition-colors"
+                                onClick={() => { setEditingTaskId(task.id); setEditingTitle(task.title); }}
+                              >
+                                {task.title}
+                              </div>
+                            )}
                             {task.description && (
                               <div className="text-xs text-slate-600 mt-0.5 line-clamp-1">
                                 {task.description}
@@ -832,6 +910,26 @@ Return ONLY valid JSON:
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
                             <option value="low">Low</option>
+                          </select>
+                          <select
+                            value={task.category || ''}
+                            onChange={(e) => handleCategoryChange(task.id, e.target.value as any)}
+                            className={`text-[11px] px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] ${cc ? cc.text : 'text-slate-600'} cursor-pointer focus:outline-none transition-all`}
+                          >
+                            <option value="">Category</option>
+                            <option value="deep_focus">Deep Focus</option>
+                            <option value="admin">Admin</option>
+                            <option value="quick">Quick</option>
+                          </select>
+                          <select
+                            value={task.estimated_minutes || ''}
+                            onChange={(e) => handleEstimatedMinutesChange(task.id, parseInt(e.target.value))}
+                            className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] text-slate-500 cursor-pointer focus:outline-none transition-all"
+                          >
+                            <option value="">Est.</option>
+                            {[5, 10, 15, 30, 45, 60, 90, 120].map(m => (
+                              <option key={m} value={m}>{m}m</option>
+                            ))}
                           </select>
                           {task.due_date ? (
                             <label className={`relative text-[11px] px-1.5 py-0.5 rounded cursor-pointer transition-all ${
@@ -919,74 +1017,95 @@ Return ONLY valid JSON:
                       groups.push({ tasks: currentGroup });
                     }
 
-                    return groups.map((group, groupIndex) => (
-                      <div key={groupIndex}>
-                        {/* Task block */}
-                        {group.tasks.length > 0 && (
-                          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
-                            {group.tasks.map((item, itemIndex) => {
-                              const priority = item.task?.priority || 'low';
-                              const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
+                    // Infer category for a group from its tasks
+                    const inferGroupCategory = (groupTasks: ScheduleItem[]) => {
+                      for (const item of groupTasks) {
+                        if (item.task?.category) return item.task.category;
+                      }
+                      return null;
+                    };
 
-                              return (
-                                <div
-                                  key={item.id}
-                                  className={`flex items-center gap-3 px-4 py-3 transition-all duration-150 hover:bg-white/[0.02] ${
-                                    itemIndex > 0 ? 'border-t border-white/[0.04]' : ''
-                                  } ${item.completed ? 'opacity-40' : ''}`}
-                                >
-                                  {/* Priority dot */}
-                                  <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
+                    return groups.map((group, groupIndex) => {
+                      const groupCategory = group.tasks.length > 0 ? inferGroupCategory(group.tasks) : null;
+                      const gc = groupCategory ? categoryConfig[groupCategory as keyof typeof categoryConfig] : null;
 
-                                  {/* Content */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className={`text-sm font-medium ${
-                                      item.completed ? 'line-through text-slate-600' : 'text-slate-200'
-                                    }`}>
-                                      {item.title}
-                                    </div>
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                      <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
-                                      <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Checkbox */}
-                                  <input
-                                    type="checkbox"
-                                    checked={item.completed}
-                                    onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
-                                    className="custom-checkbox flex-shrink-0"
-                                  />
+                      return (
+                        <div key={groupIndex}>
+                          {/* Task block */}
+                          {group.tasks.length > 0 && (
+                            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+                              {/* Category header */}
+                              {gc && (
+                                <div className={`px-4 py-1.5 border-b border-white/[0.04] ${gc.bg}`}>
+                                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${gc.text}`}>
+                                    {gc.label}
+                                  </span>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                              )}
+                              {group.tasks.map((item, itemIndex) => {
+                                const priority = item.task?.priority || 'low';
+                                const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
 
-                        {/* Break / Lunch block */}
-                        {group.separator && (
-                          <div className={`rounded-xl px-4 py-3 border ${
-                            group.separator.item_type === 'lunch'
-                              ? 'bg-[#b8a078]/[0.04] border-[#b8a078]/10'
-                              : 'bg-white/[0.02] border-white/[0.04]'
-                          }`}>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-sm font-medium ${
-                                  group.separator.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
-                                }`}>
-                                  {group.separator.title}
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className={`flex items-center gap-3 px-4 py-3 transition-all duration-150 hover:bg-white/[0.02] ${
+                                      itemIndex > 0 || gc ? 'border-t border-white/[0.04]' : ''
+                                    } ${item.completed ? 'opacity-40' : ''}`}
+                                  >
+                                    {/* Priority dot */}
+                                    <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
+
+                                    {/* Content */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className={`text-sm font-medium ${
+                                        item.completed ? 'line-through text-slate-600' : 'text-slate-200'
+                                      }`}>
+                                        {item.title}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 mt-0.5">
+                                        <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
+                                        <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* Checkbox */}
+                                    <input
+                                      type="checkbox"
+                                      checked={item.completed}
+                                      onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
+                                      className="custom-checkbox flex-shrink-0"
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Break / Lunch block */}
+                          {group.separator && (
+                            <div className={`rounded-xl px-4 py-3 border ${
+                              group.separator.item_type === 'lunch'
+                                ? 'bg-[#b8a078]/[0.04] border-[#b8a078]/10'
+                                : 'bg-white/[0.02] border-white/[0.04]'
+                            }`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-sm font-medium ${
+                                    group.separator.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
+                                  }`}>
+                                    {group.separator.title}
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-slate-600 font-mono">
+                                  {group.separator.start_time} - {group.separator.end_time}
                                 </span>
                               </div>
-                              <span className="text-[11px] text-slate-600 font-mono">
-                                {group.separator.start_time} - {group.separator.end_time}
-                              </span>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    ));
+                          )}
+                        </div>
+                      );
+                    });
                   })()}
                 </div>
               )}
