@@ -325,19 +325,11 @@ export default function Dashboard() {
   };
 
   const addTaskToDay = async (task: Task, dateStr: string, insertAtItemId?: string) => {
-    // Remove any existing schedule_items for this task (prevents duplicates across days)
-    // First find the items, then delete by their IDs for reliability with RLS
+    // Check if this task already has a schedule_item anywhere
     const { data: existingTaskItems } = await supabase
       .from('schedule_items')
       .select('id')
       .eq('task_id', task.id);
-
-    if (existingTaskItems && existingTaskItems.length > 0) {
-      await supabase
-        .from('schedule_items')
-        .delete()
-        .in('id', existingTaskItems.map(i => i.id));
-    }
 
     // Optimistically remove from current schedule UI
     if (currentSchedule?.items) {
@@ -347,7 +339,7 @@ export default function Dashboard() {
       }
     }
 
-    // Find or create schedule for the date
+    // Find or create schedule for the target date
     let { data: schedule } = await supabase
       .from('schedules')
       .select('*, items:schedule_items(*)')
@@ -370,38 +362,65 @@ export default function Dashboard() {
     }
 
     const duration = task.estimated_duration || 30;
+    let movedItem: any;
 
-    // Insert with placeholder times (will be recalculated)
-    const { data: newItem } = await supabase
-      .from('schedule_items')
-      .insert({
-        schedule_id: schedule.id,
-        task_id: task.id,
-        start_time: '00:00',
-        end_time: formatTime(duration),
-        item_type: 'task',
-        title: task.title,
-        completed: false,
-      })
-      .select()
-      .single();
+    if (existingTaskItems && existingTaskItems.length > 0) {
+      // MOVE existing item to this schedule (UPDATE, not delete+insert)
+      const itemId = existingTaskItems[0].id;
+      const { data: updated } = await supabase
+        .from('schedule_items')
+        .update({
+          schedule_id: schedule.id,
+          start_time: '00:00',
+          end_time: formatTime(duration),
+          title: task.title,
+        })
+        .eq('id', itemId)
+        .select()
+        .single();
 
-    if (!newItem) return;
+      movedItem = updated;
 
-    // Build ordered list — insert at position or append at end
-    const existingItems = schedule.items || [];
+      // Delete any extra duplicates (shouldn't exist, but safety)
+      if (existingTaskItems.length > 1) {
+        const extraIds = existingTaskItems.slice(1).map(i => i.id);
+        await supabase.from('schedule_items').delete().in('id', extraIds);
+      }
+    } else {
+      // No existing item — insert a new one
+      const { data: newItem } = await supabase
+        .from('schedule_items')
+        .insert({
+          schedule_id: schedule.id,
+          task_id: task.id,
+          start_time: '00:00',
+          end_time: formatTime(duration),
+          item_type: 'task',
+          title: task.title,
+          completed: false,
+        })
+        .select()
+        .single();
+
+      movedItem = newItem;
+    }
+
+    if (!movedItem) return;
+
+    // Build ordered list — exclude the moved item from existing, then insert at position or append
+    const existingItems = (schedule.items || []).filter((i: any) => i.id !== movedItem.id);
     let orderedItems: any[];
 
     if (insertAtItemId) {
       const insertIndex = existingItems.findIndex((i: any) => i.id === insertAtItemId);
       orderedItems = [...existingItems];
       if (insertIndex !== -1) {
-        orderedItems.splice(insertIndex, 0, newItem);
+        orderedItems.splice(insertIndex, 0, movedItem);
       } else {
-        orderedItems.push(newItem);
+        orderedItems.push(movedItem);
       }
     } else {
-      orderedItems = [...existingItems, newItem];
+      orderedItems = [...existingItems, movedItem];
     }
 
     // Recalculate all times sequentially from 09:00
@@ -418,36 +437,6 @@ export default function Dashboard() {
   };
 
   const moveScheduleItemToDay = async (item: ScheduleItem, _sourceDateStr: string, targetDateStr: string) => {
-    // Delete ALL schedule items for this task across all days (prevents duplicates)
-    if (item.task_id) {
-      const { data: existingItems } = await supabase
-        .from('schedule_items')
-        .select('id')
-        .eq('task_id', item.task_id);
-
-      if (existingItems && existingItems.length > 0) {
-        await supabase
-          .from('schedule_items')
-          .delete()
-          .in('id', existingItems.map(i => i.id));
-      }
-    } else {
-      await supabase
-        .from('schedule_items')
-        .delete()
-        .eq('id', item.id);
-    }
-
-    // Optimistic update: remove from current schedule
-    if (currentSchedule?.items) {
-      const remaining = currentSchedule.items.filter(i =>
-        i.id !== item.id && (item.task_id ? i.task_id !== item.task_id : true)
-      );
-      const recalculated = recalculateTimeSlots(remaining);
-      setCurrentSchedule({ ...currentSchedule, items: recalculated });
-      await persistReorderedItems(recalculated);
-    }
-
     // Find or create target schedule
     let { data: targetSchedule } = await supabase
       .from('schedules')
@@ -470,8 +459,8 @@ export default function Dashboard() {
       targetSchedule = { ...newSchedule, items: [] };
     }
 
-    // Find last end_time in target
-    const targetItems = targetSchedule.items || [];
+    // Calculate new position (append to end of target day)
+    const targetItems = (targetSchedule.items || []).filter((ti: any) => ti.id !== item.id);
     let lastEndTime = '09:00';
     for (const ti of targetItems) {
       if (ti.end_time > lastEndTime) lastEndTime = ti.end_time;
@@ -481,15 +470,23 @@ export default function Dashboard() {
     const startMinutes = getMinutes(lastEndTime);
     const endMinutes = startMinutes + duration;
 
-    await supabase.from('schedule_items').insert({
-      schedule_id: targetSchedule.id,
-      task_id: item.task_id || null,
-      start_time: formatTime(startMinutes),
-      end_time: formatTime(endMinutes),
-      item_type: item.item_type,
-      title: item.title,
-      completed: false,
-    });
+    // MOVE the item by updating its schedule_id (no delete+insert — avoids RLS issues)
+    await supabase
+      .from('schedule_items')
+      .update({
+        schedule_id: targetSchedule.id,
+        start_time: formatTime(startMinutes),
+        end_time: formatTime(endMinutes),
+      })
+      .eq('id', item.id);
+
+    // Optimistic update: remove from current schedule and recalculate times
+    if (currentSchedule?.items) {
+      const remaining = currentSchedule.items.filter(i => i.id !== item.id);
+      const recalculated = recalculateTimeSlots(remaining);
+      setCurrentSchedule({ ...currentSchedule, items: recalculated });
+      await persistReorderedItems(recalculated);
+    }
 
     await loadScheduleForDate(selectedDate);
   };
@@ -946,19 +943,36 @@ Return ONLY valid JSON array, no markdown, no explanation.`
   };
 
   const generateScheduleForDay = async (date: string, dayTasks: Task[], hours: number) => {
-    const { data: existing } = await supabase
+    // Find or create the schedule row (never delete it — avoids RLS/unique constraint issues)
+    let { data: scheduleRow } = await supabase
       .from('schedules')
       .select('id')
       .eq('schedule_date', date)
       .eq('user_id', user.id)
       .single();
 
-    if (existing) {
-      await supabase.from('schedule_items').delete().eq('schedule_id', existing.id);
-      await supabase.from('schedules').delete().eq('id', existing.id);
+    if (scheduleRow) {
+      // Clear existing items for this schedule
+      await supabase.from('schedule_items').delete().eq('schedule_id', scheduleRow.id);
+    } else {
+      const { data: newSchedule, error } = await supabase
+        .from('schedules')
+        .insert({
+          user_id: user.id,
+          schedule_date: date,
+          schedule_data: { total_hours: hours, work_blocks: 0, break_blocks: 0 },
+        })
+        .select()
+        .single();
+
+      if (error || !newSchedule) throw error || new Error('Failed to create schedule');
+      scheduleRow = newSchedule;
     }
 
-    // Remove these tasks from any other day's schedule (one task = one day only)
+    const scheduleId = scheduleRow!.id;
+
+    // Move any existing schedule_items for these tasks to this schedule
+    // (enforces one-task-per-day by reassigning rather than deleting)
     const taskIds = dayTasks.map(t => t.id);
     const { data: staleItems } = await supabase
       .from('schedule_items')
@@ -966,6 +980,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .in('task_id', taskIds);
 
     if (staleItems && staleItems.length > 0) {
+      // Delete stale items from other schedules (these tasks will get fresh items below)
       await supabase
         .from('schedule_items')
         .delete()
@@ -1022,21 +1037,17 @@ Return ONLY valid JSON:
     const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
     const schedule = JSON.parse(text);
 
-    const { data: scheduleData, error: schedError } = await supabase
+    // Update schedule metadata
+    await supabase
       .from('schedules')
-      .insert({
-        user_id: user.id,
-        schedule_date: date,
+      .update({
         schedule_data: {
           total_hours: hours,
           work_blocks: schedule.blocks.filter((b: any) => b.type === 'task').length,
-          break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length
-        }
+          break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length,
+        },
       })
-      .select()
-      .single();
-
-    if (schedError) throw schedError;
+      .eq('id', scheduleId);
 
     const items = schedule.blocks.map((block: any) => {
       const matchingTask = dayTasks.find(t =>
@@ -1045,17 +1056,23 @@ Return ONLY valid JSON:
       );
 
       return {
-        schedule_id: scheduleData.id,
+        schedule_id: scheduleId,
         task_id: matchingTask?.id || null,
         start_time: block.start_time,
         end_time: block.end_time,
         item_type: block.type,
         title: block.title,
-        completed: false
+        completed: false,
       };
     });
 
     await supabase.from('schedule_items').insert(items);
+
+    // Mark these tasks as scheduled
+    await supabase
+      .from('tasks')
+      .update({ status: 'scheduled' })
+      .in('id', taskIds);
   };
 
   const handleSignOut = async () => {
