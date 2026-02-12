@@ -5,8 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY;
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!apiKey) {
       return NextResponse.json(
         { error: { message: 'ANTHROPIC_API_KEY is not configured' } },
         { status: 500 }
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify(body)
