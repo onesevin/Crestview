@@ -8,8 +8,6 @@ export interface Task {
   estimated_duration?: number;
   actual_duration?: number;
   priority: 'high' | 'medium' | 'low';
-  estimated_minutes?: number;
-  due_date?: string;
   tags?: string[];
   created_at: string;
   completed_at?: string;

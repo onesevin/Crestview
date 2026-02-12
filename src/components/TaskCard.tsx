@@ -3,7 +3,6 @@
 import { useDraggable } from '@dnd-kit/core';
 import { Task } from '@/types';
 import { TASK_LIST_ITEM } from '@/lib/dnd-constants';
-import { format } from 'date-fns';
 
 interface TaskCardProps {
   task: Task;
@@ -16,15 +15,14 @@ interface TaskCardProps {
   onCancelEditing: () => void;
   onDelete: (taskId: string) => void;
   onChangePriority: (taskId: string, priority: 'high' | 'medium' | 'low') => void;
-  onEstimatedMinutesChange: (taskId: string, value: string) => void;
-  onDueDateChange: (taskId: string, newDate: string) => void;
+  onEstimatedDurationChange: (taskId: string, value: string) => void;
   isDragOverlay?: boolean;
 }
 
 export default function TaskCard({
   task, pc, isEditing, editingTitle,
   onEditingTitleChange, onTitleEdit, onStartEditing, onCancelEditing,
-  onDelete, onChangePriority, onEstimatedMinutesChange, onDueDateChange,
+  onDelete, onChangePriority, onEstimatedDurationChange,
   isDragOverlay,
 }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -32,9 +30,6 @@ export default function TaskCard({
     data: { type: TASK_LIST_ITEM, task },
     disabled: isDragOverlay,
   });
-
-  const isOverdue = task.due_date && task.due_date < format(new Date(), 'yyyy-MM-dd');
-  const isDueToday = task.due_date && task.due_date === format(new Date(), 'yyyy-MM-dd');
 
   return (
     <div
@@ -103,8 +98,8 @@ export default function TaskCard({
             <option value="low">Low</option>
           </select>
           <select
-            value={task.estimated_minutes || ''}
-            onChange={(e) => onEstimatedMinutesChange(task.id, e.target.value)}
+            value={task.estimated_duration || ''}
+            onChange={(e) => onEstimatedDurationChange(task.id, e.target.value)}
             className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] text-slate-500 cursor-pointer focus:outline-none transition-all"
           >
             <option value="">Est.</option>
@@ -112,33 +107,6 @@ export default function TaskCard({
               <option key={m} value={m}>{m}m</option>
             ))}
           </select>
-          {task.due_date ? (
-            <label className={`relative text-[11px] px-1.5 py-0.5 rounded cursor-pointer transition-all ${
-              isOverdue
-                ? 'bg-[#e8705e]/10 text-[#e8705e] border border-[#e8705e]/20'
-                : isDueToday
-                ? 'bg-[#d4a54a]/10 text-[#d4a54a] border border-[#d4a54a]/20'
-                : 'bg-white/[0.03] text-slate-500 border border-white/[0.06] hover:border-white/10'
-            }`}>
-              {isOverdue ? 'Overdue' : isDueToday ? 'Today' : format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
-              <input
-                type="date"
-                value={task.due_date}
-                onChange={(e) => onDueDateChange(task.id, e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer [color-scheme:dark]"
-              />
-            </label>
-          ) : (
-            <label className="relative text-[11px] px-1.5 py-0.5 rounded bg-white/[0.02] text-slate-700 border border-white/[0.04] cursor-pointer hover:text-slate-500 hover:border-white/[0.08] transition-all">
-              + date
-              <input
-                type="date"
-                value=""
-                onChange={(e) => onDueDateChange(task.id, e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer [color-scheme:dark]"
-              />
-            </label>
-          )}
         </div>
       )}
     </div>

@@ -132,7 +132,7 @@ export default function Dashboard() {
     today.setHours(0, 0, 0, 0);
     const todayStr = format(today, 'yyyy-MM-dd');
 
-    const rolledTasks: { id: string; title: string; estimated_minutes?: number }[] = [];
+    const rolledTasks: { id: string; title: string; estimated_duration?: number }[] = [];
 
     for (let i = 1; i <= 7; i++) {
       const pastDate = subDays(today, i);
@@ -164,7 +164,7 @@ export default function Dashboard() {
         rolledTasks.push({
           id: item.task_id!,
           title: item.task?.title || item.title,
-          estimated_minutes: item.task?.estimated_minutes || undefined,
+          estimated_duration: item.task?.estimated_duration || undefined,
         });
       }
     }
@@ -221,7 +221,7 @@ export default function Dashboard() {
       }
 
       const newItems = tasksToAdd.map(task => {
-        const duration = task.estimated_minutes || 30;
+        const duration = task.estimated_duration || 30;
         const [h, m] = lastEndTime.split(':').map(Number);
         const startMinutes = h * 60 + m;
         const endMinutes = startMinutes + duration;
@@ -368,7 +368,7 @@ export default function Dashboard() {
       schedule = { ...newSchedule, items: [] };
     }
 
-    const duration = task.estimated_minutes || 30;
+    const duration = task.estimated_duration || 30;
 
     // Insert with placeholder times (will be recalculated)
     const { data: newItem } = await supabase
@@ -555,15 +555,10 @@ export default function Dashboard() {
         max_tokens: 4000,
         messages: [{
           role: 'user',
-          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), due_date (optional string in YYYY-MM-DD format or null), estimated_minutes (number).
-
-Today's date is ${format(new Date(), 'yyyy-MM-dd')} (${format(new Date(), 'EEEE')}).
+          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), estimated_minutes (number).
 
 RULES:
-- Preserve the EXACT original wording for the title. Do not paraphrase, shorten, or rewrite task titles. Strip any deadline phrase from the title (e.g. "Review PRs by Wednesday" → title: "Review PRs", due_date: next Wednesday).
-- Extract due dates from natural language: "by Wednesday", "due Friday", "before March 5", "tomorrow", etc.
-- Resolve relative dates (e.g. "Wednesday" means the NEXT upcoming Wednesday relative to today).
-- If no deadline is mentioned, set due_date to null.
+- Preserve the EXACT original wording for the title. Do not paraphrase, shorten, or rewrite task titles.
 
 DURATION ESTIMATION:
 ${patterns.length > 0 ? `Use these historical patterns from the user's completed tasks to estimate duration:\n${patterns.map(p => `- Tasks matching '${p.task_keywords.join(', ')}' typically take ${p.average_duration}min`).join('\n')}\nIf no pattern matches, use your best guess.` : 'Use your best guess at duration.'}
@@ -648,6 +643,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             title: task.title,
             description: task.description || null,
             priority: task.priority || 'medium',
+            estimated_duration: task.estimated_minutes || null,
             status: 'pending'
           }))
         )
@@ -694,16 +690,6 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadScheduleForDate(selectedDate);
   };
 
-  const handleDueDateChange = async (taskId: string, newDate: string) => {
-    await supabase
-      .from('tasks')
-      .update({ due_date: newDate || null })
-      .eq('id', taskId);
-
-    await loadPendingTasks();
-    await loadScheduleForDate(selectedDate);
-  };
-
   const handleTitleEdit = async (taskId: string, newTitle: string) => {
     if (!newTitle.trim()) return;
     const trimmed = newTitle.trim();
@@ -722,13 +708,13 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadScheduleForDate(selectedDate);
   };
 
-  const handleEstimatedMinutesChange = async (taskId: string, value: string) => {
+  const handleEstimatedDurationChange = async (taskId: string, value: string) => {
     const minutes = parseInt(value);
     const newMinutes = isNaN(minutes) ? null : minutes;
 
     await supabase
       .from('tasks')
-      .update({ estimated_minutes: newMinutes })
+      .update({ estimated_duration: newMinutes })
       .eq('id', taskId);
 
     // Adjust the schedule block duration if this task is on the current schedule
@@ -929,7 +915,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
         .eq('schedule_id', existingSchedule.id);
 
       const taskDescriptions = tasksToSchedule.map(t =>
-        `${t.title} [Priority: ${t.priority}]${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
+        `${t.title} [Priority: ${t.priority}]${t.estimated_duration ? ` [Est: ${t.estimated_duration}min]` : ''}`
       );
 
       const patternsBlock = patterns.length > 0
@@ -1041,47 +1027,18 @@ Return ONLY valid JSON:
         return;
       }
 
-      const todayStr = format(today, 'yyyy-MM-dd');
-      const tasksWithDueDate = tasks.filter(t => t.due_date);
-      const tasksWithoutDueDate = tasks.filter(t => !t.due_date);
-
       const tasksPerDay: Task[][] = remainingDates.map(() => []);
-      const remainingDateStrs = remainingDates.map(d => format(d, 'yyyy-MM-dd'));
 
       const sortByPriority = (a: Task, b: Task) => {
         const order = { high: 0, medium: 1, low: 2 };
         return order[a.priority] - order[b.priority];
       };
-      tasksWithDueDate.sort(sortByPriority);
 
-      for (const task of tasksWithDueDate) {
-        const dueDate = task.due_date!;
-        let assignedIndex = -1;
-
-        if (dueDate <= todayStr) {
-          assignedIndex = 0;
-        } else {
-          for (let j = remainingDateStrs.length - 1; j >= 0; j--) {
-            if (remainingDateStrs[j] <= dueDate) {
-              assignedIndex = j;
-              break;
-            }
-          }
-          if (assignedIndex === -1) assignedIndex = 0;
-        }
-
-        tasksPerDay[assignedIndex].push(task);
-      }
-
-      const sortedNoDue = [...tasksWithoutDueDate].sort(sortByPriority);
-      sortedNoDue.forEach((task, index) => {
+      const sortedTasks = [...tasks].sort(sortByPriority);
+      sortedTasks.forEach((task, index) => {
         const dayIndex = index % remainingDates.length;
         tasksPerDay[dayIndex].push(task);
       });
-
-      for (const dayTasks of tasksPerDay) {
-        dayTasks.sort(sortByPriority);
-      }
 
       for (let i = 0; i < remainingDates.length; i++) {
         const date = remainingDates[i];
@@ -1121,7 +1078,7 @@ Return ONLY valid JSON:
     }
 
     const taskDescriptions = dayTasks.map(t =>
-      `${t.title} [Priority: ${t.priority}]${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
+      `${t.title} [Priority: ${t.priority}]${t.estimated_duration ? ` [Est: ${t.estimated_duration}min]` : ''}`
     );
 
     const patternsBlock = patterns.length > 0
@@ -1374,8 +1331,7 @@ Return ONLY valid JSON:
                           onCancelEditing={() => setEditingTaskId(null)}
                           onDelete={handleDeleteTask}
                           onChangePriority={handleChangePriority}
-                          onEstimatedMinutesChange={handleEstimatedMinutesChange}
-                          onDueDateChange={handleDueDateChange}
+                          onEstimatedDurationChange={handleEstimatedDurationChange}
                         />
                       );
                     })

@@ -19,8 +19,8 @@ export default function DragOverlayContent({ activeItem, priorityConfig }: DragO
     return (
       <div className={`${pc.tint} border border-white/[0.1] border-l-2 ${pc.border} rounded-lg pl-3.5 pr-3 py-2.5 shadow-2xl ring-1 ring-white/20 max-w-[280px]`}>
         <div className="font-medium text-slate-100 text-sm leading-snug">{task.title}</div>
-        {task.estimated_minutes && (
-          <div className="text-[11px] text-slate-500 mt-1">{task.estimated_minutes}min</div>
+        {task.estimated_duration && (
+          <div className="text-[11px] text-slate-500 mt-1">{task.estimated_duration}min</div>
         )}
       </div>
     );
