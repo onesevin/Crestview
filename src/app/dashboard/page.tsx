@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Task, Schedule, ScheduleItem } from '@/types';
-import { format, addDays, startOfWeek, isWeekend, isToday } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, isWeekend, isToday } from 'date-fns';
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -14,6 +14,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [workHours, setWorkHours] = useState<Record<string, number>>({});
+  const [rolloverNotification, setRolloverNotification] = useState<{
+    count: number;
+    taskTitles: string[];
+    rolledBackIds: string[];
+  } | null>(null);
 
   useEffect(() => {
     // Get current user
@@ -37,6 +42,79 @@ export default function Dashboard() {
       loadScheduleForDate(selectedDate);
     }
   }, [user, selectedDate]);
+
+  // Auto-rollover incomplete tasks from past days
+  useEffect(() => {
+    if (user) {
+      checkAndRollover();
+    }
+  }, [user]);
+
+  const checkAndRollover = async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Check the past 7 days for incomplete scheduled tasks
+    const rolledTasks: { id: string; title: string }[] = [];
+
+    for (let i = 1; i <= 7; i++) {
+      const pastDate = subDays(today, i);
+      if (isWeekend(pastDate)) continue;
+
+      const dateStr = format(pastDate, 'yyyy-MM-dd');
+      const { data: schedule } = await supabase
+        .from('schedules')
+        .select(`
+          *,
+          items:schedule_items(
+            *,
+            task:tasks(*)
+          )
+        `)
+        .eq('schedule_date', dateStr)
+        .eq('user_id', user.id)
+        .single();
+
+      if (!schedule?.items) continue;
+
+      const incompleteItems = schedule.items.filter(
+        (item: any) => item.item_type === 'task' && !item.completed && item.task_id && item.task?.status === 'scheduled'
+      );
+
+      for (const item of incompleteItems) {
+        rolledTasks.push({ id: item.task_id!, title: item.task?.title || item.title });
+      }
+    }
+
+    if (rolledTasks.length === 0) return;
+
+    // Mark tasks as pending so they reappear in the task list
+    const taskIds = rolledTasks.map(t => t.id);
+    await supabase
+      .from('tasks')
+      .update({ status: 'pending' })
+      .in('id', taskIds);
+
+    setRolloverNotification({
+      count: rolledTasks.length,
+      taskTitles: rolledTasks.map(t => t.title),
+      rolledBackIds: taskIds,
+    });
+
+    await loadPendingTasks();
+  };
+
+  const handleUndoRollover = async () => {
+    if (!rolloverNotification) return;
+
+    await supabase
+      .from('tasks')
+      .update({ status: 'scheduled' })
+      .in('id', rolloverNotification.rolledBackIds);
+
+    setRolloverNotification(null);
+    await loadPendingTasks();
+  };
 
   const loadPendingTasks = async () => {
     const { data } = await supabase
@@ -608,6 +686,36 @@ Return ONLY valid JSON:
             Sign Out
           </button>
         </div>
+
+        {/* Rollover notification */}
+        {rolloverNotification && (
+          <div className="mb-6 bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 flex items-center justify-between animate-fade-in">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-slate-300">
+                {rolloverNotification.count} incomplete {rolloverNotification.count === 1 ? 'task' : 'tasks'} rolled over from previous days
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5 truncate">
+                {rolloverNotification.taskTitles.join(', ')}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              <button
+                onClick={handleUndoRollover}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2 py-1"
+              >
+                Undo
+              </button>
+              <button
+                onClick={() => setRolloverNotification(null)}
+                className="text-slate-600 hover:text-slate-400 transition-colors p-1"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Week Navigation */}
         <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
