@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Task, Schedule } from '@/types';
-import { format, addDays, startOfWeek, isWeekend } from 'date-fns';
+import { format, addDays, startOfWeek, isWeekend, isToday } from 'date-fns';
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -45,7 +45,7 @@ export default function Dashboard() {
       .in('status', ['pending', 'rolled_over', 'scheduled'])
       .order('priority', { ascending: false })
       .order('created_at', { ascending: true });
-    
+
     setTasks(data || []);
   };
 
@@ -78,7 +78,7 @@ export default function Dashboard() {
         messages: [{
           role: 'user',
           content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low').
-          
+
 CRITICAL: Preserve the EXACT original wording. Do not paraphrase, shorten, or rewrite task titles.
 
 Input:
@@ -103,19 +103,19 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     setLoading(true);
     try {
       const parsedTasks = await parseTasksWithClaude(taskInput);
-      
+
       // Check for duplicates
       const existingTasks = tasks;
       const duplicates: any[] = [];
       const uniqueTasks: any[] = [];
 
       parsedTasks.forEach((newTask: any) => {
-        const isDuplicate = existingTasks.some(existing => 
+        const isDuplicate = existingTasks.some(existing =>
           existing.title.toLowerCase() === newTask.title.toLowerCase()
         );
-        
+
         if (isDuplicate) {
-          const existingTask = existingTasks.find(e => 
+          const existingTask = existingTasks.find(e =>
             e.title.toLowerCase() === newTask.title.toLowerCase()
           );
           duplicates.push({ newTask, existingTask });
@@ -128,15 +128,15 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
       if (duplicates.length > 0) {
         const duplicateList = duplicates
-          .map((d, i) => 
+          .map((d, i) =>
             `${i + 1}. "${d.newTask.title}" (similar to: "${d.existingTask.title}")`
           )
           .join('\n');
-        
+
         const addDuplicates = confirm(
           `Found ${duplicates.length} potential duplicate(s):\n\n${duplicateList}\n\nAdd anyway?`
         );
-        
+
         if (addDuplicates) {
           tasksToAdd = [...uniqueTasks, ...duplicates.map(d => d.newTask)];
         } else if (uniqueTasks.length === 0) {
@@ -198,7 +198,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .from('tasks')
       .update({ priority })
       .eq('id', taskId);
-    
+
     await loadPendingTasks();
   };
 
@@ -213,18 +213,18 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     if (!currentlyCompleted && taskId) {
       await supabase
         .from('tasks')
-        .update({ 
+        .update({
           status: 'completed',
           completed_at: new Date().toISOString()
         })
         .eq('id', taskId);
     }
-    
+
     // If unchecking AND it has a task, mark task back to pending
     if (currentlyCompleted && taskId) {
       await supabase
         .from('tasks')
-        .update({ 
+        .update({
           status: 'pending',
           completed_at: null
         })
@@ -237,7 +237,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
   const handleWorkHoursChange = async (dateStr: string, newHours: number) => {
     setWorkHours({ ...workHours, [dateStr]: newHours });
-    
+
     // Check if this date already has a schedule
     const { data: existingSchedule } = await supabase
       .from('schedules')
@@ -245,13 +245,13 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       .eq('schedule_date', dateStr)
       .eq('user_id', user.id)
       .single();
-    
+
     if (existingSchedule) {
       // Schedule exists, ask if they want to regenerate
       const shouldRegenerate = confirm(
         `This day already has a schedule. Regenerate with ${newHours} hours?`
       );
-      
+
       if (shouldRegenerate) {
         setLoading(true);
         try {
@@ -260,23 +260,23 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             .from('schedule_items')
             .delete()
             .eq('schedule_id', existingSchedule.id);
-          
+
           if (deleteItemsError) {
             console.error('Error deleting schedule items:', deleteItemsError);
             throw deleteItemsError;
           }
-          
+
           // Get tasks to schedule
           const tasksToSchedule = tasks.length > 0 ? tasks : [];
-          
+
           if (tasksToSchedule.length === 0) {
             alert('No tasks available to schedule');
             setLoading(false);
             return;
           }
-          
+
           // Generate new schedule with AI
-          const taskDescriptions = tasksToSchedule.map(t => 
+          const taskDescriptions = tasksToSchedule.map(t =>
             `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
           );
 
@@ -317,7 +317,7 @@ Return ONLY valid JSON:
           const data = await response.json();
           const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
           const schedule = JSON.parse(text);
-          
+
           // Update existing schedule with new data
           const { error: updateError } = await supabase
             .from('schedules')
@@ -329,15 +329,15 @@ Return ONLY valid JSON:
               }
             })
             .eq('id', existingSchedule.id);
-          
+
           if (updateError) {
             console.error('Error updating schedule:', updateError);
             throw updateError;
           }
-          
+
           // Create new schedule items
           const items = schedule.blocks.map((block: any) => {
-            const matchingTask = tasksToSchedule.find(t => 
+            const matchingTask = tasksToSchedule.find(t =>
               block.title.toLowerCase().includes(t.title.toLowerCase()) ||
               t.title.toLowerCase().includes(block.title.toLowerCase())
             );
@@ -356,17 +356,17 @@ Return ONLY valid JSON:
           const { error: insertError } = await supabase
             .from('schedule_items')
             .insert(items);
-          
+
           if (insertError) {
             console.error('Error inserting schedule items:', insertError);
             throw insertError;
           }
-          
+
           // Reload schedule
           if (format(selectedDate, 'yyyy-MM-dd') === dateStr) {
             await loadScheduleForDate(selectedDate);
           }
-          
+
           alert(`Schedule regenerated with ${newHours} hours!`);
         } catch (error) {
           console.error('Error regenerating schedule:', error);
@@ -389,7 +389,7 @@ Return ONLY valid JSON:
       const weekDates = getWeekDates();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       const remainingDates = weekDates.filter(date => {
         const d = new Date(date);
         d.setHours(0, 0, 0, 0);
@@ -407,7 +407,7 @@ Return ONLY valid JSON:
       const mediumPriority = tasks.filter(t => t.priority === 'medium');
       const lowPriority = tasks.filter(t => t.priority === 'low');
       const sortedTasks = [...highPriority, ...mediumPriority, ...lowPriority];
-      
+
       const tasksPerDay: Task[][] = remainingDates.map(() => []);
       sortedTasks.forEach((task, index) => {
         const dayIndex = index % remainingDates.length;
@@ -420,7 +420,7 @@ Return ONLY valid JSON:
         const dateStr = format(date, 'yyyy-MM-dd');
         const hours = workHours[dateStr] || 6;
         const dayTasks = tasksPerDay[i];
-        
+
         if (dayTasks.length === 0) continue;
 
         await generateScheduleForDay(dateStr, dayTasks, hours);
@@ -439,7 +439,7 @@ Return ONLY valid JSON:
   };
 
   const generateScheduleForDay = async (date: string, dayTasks: Task[], hours: number) => {
-    const taskDescriptions = dayTasks.map(t => 
+    const taskDescriptions = dayTasks.map(t =>
       `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
     );
 
@@ -500,7 +500,7 @@ Return ONLY valid JSON:
 
     // Create schedule items
     const items = schedule.blocks.map((block: any) => {
-      const matchingTask = dayTasks.find(t => 
+      const matchingTask = dayTasks.find(t =>
         block.title.toLowerCase().includes(t.title.toLowerCase()) ||
         t.title.toLowerCase().includes(block.title.toLowerCase())
       );
@@ -528,12 +528,21 @@ Return ONLY valid JSON:
     return Array.from({ length: 5 }, (_, i) => addDays(start, i));
   };
 
+  const priorityConfig = {
+    high: { dot: 'bg-red-400', text: 'text-red-400', label: 'High' },
+    medium: { dot: 'bg-amber-400', text: 'text-amber-400', label: 'Medium' },
+    low: { dot: 'bg-sky-400', text: 'text-sky-400', label: 'Low' },
+  };
+
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
+      <div className="min-h-screen bg-[#0B0F1A] flex items-center justify-center">
+        <div className="text-center animate-fade-in">
+          <div className="inline-block mb-6">
+            <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
+          </div>
           <h1 className="text-2xl text-white mb-4">Please sign in</h1>
-          <a href="/" className="text-indigo-400 hover:text-indigo-300">
+          <a href="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
             Go to login
           </a>
         </div>
@@ -544,47 +553,74 @@ Return ONLY valid JSON:
   const weekDates = getWeekDates();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <div className="max-w-7xl mx-auto p-6">
+    <div className="min-h-screen bg-[#0B0F1A] text-white relative">
+      {/* Background gradients */}
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(99,102,241,0.08)_0%,_transparent_50%)] pointer-events-none" />
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.06)_0%,_transparent_50%)] pointer-events-none" />
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="glass-card p-8 flex flex-col items-center gap-4 animate-fade-in">
+            <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
+            <p className="text-slate-300 text-sm">Processing...</p>
+          </div>
+        </div>
+      )}
+
+      <div className="relative z-10 max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">TaskFlow</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
+            TaskFlow
+          </h1>
           <button
             onClick={handleSignOut}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded transition"
+            className="px-4 py-2 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:border-white/20 hover:bg-white/5 transition-all duration-200 text-sm"
           >
             Sign Out
           </button>
         </div>
 
         {/* Week Navigation */}
-        <div className="grid grid-cols-5 gap-4 mb-8">
+        <div className="flex gap-3 mb-8 overflow-x-auto pb-2">
           {weekDates.map((date) => {
             const dateStr = format(date, 'yyyy-MM-dd');
             const isSelected = format(selectedDate, 'yyyy-MM-dd') === dateStr;
-            
+            const isTodayDate = isToday(date);
+
             return (
-              <div key={dateStr} className="text-center">
+              <div key={dateStr} className="flex flex-col items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedDate(date)}
-                  className={`w-full p-4 rounded-lg transition ${
+                  className={`relative px-5 py-3 rounded-xl transition-all duration-200 min-w-[100px] ${
                     isSelected
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      ? 'gradient-btn text-white shadow-lg shadow-indigo-500/20'
+                      : 'bg-white/5 border border-white/8 text-slate-400 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  <div className="text-sm">{format(date, 'EEE')}</div>
-                  <div className="text-lg font-bold">{format(date, 'MMM d')}</div>
+                  <div className="text-xs font-medium uppercase tracking-wider">{format(date, 'EEE')}</div>
+                  <div className="text-lg font-bold mt-0.5">{format(date, 'MMM d')}</div>
+                  {isTodayDate && (
+                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full shadow-lg shadow-emerald-400/50" />
+                  )}
                 </button>
-                <select
-                  value={workHours[dateStr] || 6}
-                  onChange={(e) => handleWorkHoursChange(dateStr, Number(e.target.value))}
-                  className="w-full mt-2 p-2 bg-gray-800 text-white rounded text-sm"
-                >
+                {/* Styled hour selector */}
+                <div className="flex items-center gap-1">
                   {[4, 5, 6, 7, 8].map(h => (
-                    <option key={h} value={h}>{h} hours</option>
+                    <button
+                      key={h}
+                      onClick={() => handleWorkHoursChange(dateStr, h)}
+                      className={`w-7 h-7 rounded-md text-xs font-medium transition-all duration-200 ${
+                        (workHours[dateStr] || 6) === h
+                          ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40'
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                      }`}
+                    >
+                      {h}h
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
             );
           })}
@@ -594,153 +630,189 @@ Return ONLY valid JSON:
           {/* Left Column */}
           <div className="space-y-6">
             {/* Add Tasks */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Add Tasks</h2>
+            <div className="glass-card p-6 animate-fade-in">
+              <h2 className="text-lg font-semibold text-white mb-4">Add Tasks</h2>
               <textarea
                 value={taskInput}
                 onChange={(e) => setTaskInput(e.target.value)}
-                placeholder="Enter tasks (one per line or describe naturally)"
-                className="w-full p-3 bg-gray-700 text-white rounded mb-4 h-32 resize-none"
+                placeholder="Describe your tasks naturally...&#10;e.g. Review PRs (high priority)&#10;Write documentation&#10;Fix login bug"
+                className="w-full p-3.5 bg-white/5 border border-white/10 text-white rounded-lg mb-4 h-32 resize-none placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all duration-200 text-sm"
                 disabled={loading}
               />
               <button
                 onClick={handleAddTasks}
                 disabled={loading || !taskInput.trim()}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white py-3 rounded transition font-medium"
+                className="gradient-btn w-full text-white py-3 rounded-lg font-medium text-sm"
               >
-                {loading ? 'Processing...' : 'Add Tasks'}
+                Add Tasks
               </button>
             </div>
 
             {/* Pending Tasks */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">
-                Pending Tasks
-                <span className="text-sm text-gray-400 ml-2">{tasks.length} tasks</span>
-              </h2>
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {tasks.map((task) => (
-                  <div key={task.id} className="bg-gray-700 rounded p-4">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="font-medium text-white mb-2">{task.title}</div>
-                        {task.description && (
-                          <div className="text-sm text-gray-400 mt-1 mb-2">
-                            {task.description}
+            <div className="glass-card p-6 animate-fade-in">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">Pending Tasks</h2>
+                <span className="text-xs text-slate-400 bg-white/5 px-2.5 py-1 rounded-full">
+                  {tasks.length} tasks
+                </span>
+              </div>
+              <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                {tasks.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <svg className="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <p className="text-sm">No tasks yet</p>
+                  </div>
+                ) : (
+                  tasks.map((task) => {
+                    const pc = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig.medium;
+                    return (
+                      <div
+                        key={task.id}
+                        className="group bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 glow-border"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-white text-sm leading-snug">{task.title}</div>
+                            {task.description && (
+                              <div className="text-xs text-slate-400 mt-1 line-clamp-2">
+                                {task.description}
+                              </div>
+                            )}
+                            <div className="flex gap-2 items-center mt-2.5">
+                              <select
+                                value={task.priority}
+                                onChange={(e) => handleChangePriority(task.id, e.target.value as any)}
+                                className={`text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 ${pc.text} cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all`}
+                              >
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                              </select>
+                              <span className="flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${pc.dot}`} />
+                                <span className={`text-xs ${pc.text}`}>{pc.label}</span>
+                              </span>
+                            </div>
                           </div>
-                        )}
-                        <div className="flex gap-2 items-center">
-                          <select
-                            value={task.priority}
-                            onChange={(e) => handleChangePriority(task.id, e.target.value as any)}
-                            className={`text-xs px-2 py-1 rounded border ${
-                              task.priority === 'high'
-                                ? 'bg-red-100 text-red-700 border-red-300'
-                                : task.priority === 'medium'
-                                ? 'bg-yellow-100 text-yellow-700 border-yellow-300'
-                                : 'bg-green-100 text-green-700 border-green-300'
-                            }`}
+                          <button
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="ml-3 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 opacity-0 group-hover:opacity-100"
                           >
-                            <option value="high">High Priority</option>
-                            <option value="medium">Medium Priority</option>
-                            <option value="low">Low Priority</option>
-                          </select>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="ml-3 text-gray-400 hover:text-red-500 transition"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
 
           {/* Right Column - Schedule */}
           <div className="lg:col-span-2">
-            <div className="bg-gray-800 rounded-lg p-6">
+            <div className="glass-card p-6 animate-fade-in">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold">
-                  Schedule for {format(selectedDate, 'EEEE, MMMM d')}
-                </h2>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    {format(selectedDate, 'EEEE, MMMM d')}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {currentSchedule?.items?.length || 0} scheduled items
+                  </p>
+                </div>
                 <button
                   onClick={handleGenerateSchedule}
                   disabled={loading || tasks.length === 0}
-                  className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded transition"
+                  className="gradient-btn-green px-5 py-2.5 rounded-lg text-white text-sm font-medium"
                 >
-                  {loading ? 'Generating...' : 'Generate Today Forward'}
+                  Generate Schedule
                 </button>
               </div>
 
               {!currentSchedule ? (
-                <div className="text-center py-12 text-gray-400">
-                  <p>No schedule generated yet</p>
-                  <p className="text-sm mt-2">Add tasks and click "Generate Schedule"</p>
+                <div className="text-center py-16 animate-fade-in">
+                  <svg className="w-12 h-12 mx-auto mb-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <p className="text-slate-400 font-medium">No schedule yet</p>
+                  <p className="text-sm text-slate-500 mt-1">Add tasks and generate a schedule to get started</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {currentSchedule.items?.map((item) => {
-                    const priorityColors = {
-                      high: 'border-red-500 bg-red-900/30',
-                      medium: 'border-yellow-500 bg-yellow-900/30',
-                      low: 'border-indigo-500 bg-indigo-900/30',
-                    };
-                    
-                    const typeColors = {
-                      lunch: 'border-green-500 bg-green-900/30',
-                      break: 'border-gray-500 bg-gray-700/30',
-                      task: ''
-                    };
+                <div className="relative">
+                  {/* Timeline line */}
+                  <div className="absolute left-[23px] top-2 bottom-2 w-px bg-gradient-to-b from-indigo-500/30 via-violet-500/20 to-transparent" />
 
-                    const priority = item.task?.priority || 'low';
-                    const colorClass = item.item_type === 'task' 
-                      ? priorityColors[priority]
-                      : typeColors[item.item_type as keyof typeof typeColors];
+                  <div className="space-y-1.5">
+                    {currentSchedule.items?.map((item, index) => {
+                      const priority = item.task?.priority || 'low';
+                      const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
 
-                    return (
-                      <div
-                        key={item.id}
-                        className={`p-4 rounded-lg border-l-4 ${colorClass}`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{item.start_time} - {item.end_time}</span>
-                              {item.item_type === 'task' && item.task && (
-                                <span className={`text-xs px-2 py-0.5 rounded ${
-                                  priority === 'high'
-                                    ? 'bg-red-100 text-red-700'
-                                    : priority === 'medium'
-                                    ? 'bg-yellow-100 text-yellow-700'
-                                    : 'bg-green-100 text-green-700'
-                                }`}>
-                                  {priority}
+                      const isTask = item.item_type === 'task';
+                      const isLunch = item.item_type === 'lunch';
+                      const isBreak = item.item_type === 'break';
+
+                      const dotColor = isTask
+                        ? (priority === 'high' ? 'bg-red-400' : priority === 'medium' ? 'bg-amber-400' : 'bg-sky-400')
+                        : isLunch
+                        ? 'bg-emerald-400'
+                        : 'bg-slate-500';
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`relative flex items-start gap-4 pl-2 py-2.5 pr-3 rounded-lg transition-all duration-200 ${
+                            isTask ? 'hover:bg-white/[0.03]' : ''
+                          } ${item.completed ? 'opacity-50' : ''}`}
+                          style={{ animationDelay: `${index * 50}ms` }}
+                        >
+                          {/* Timeline dot */}
+                          <div className="relative z-10 flex-shrink-0 mt-1.5">
+                            <div className={`w-3 h-3 rounded-full ${dotColor} ring-4 ring-[#0B0F1A]`} />
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 text-xs text-slate-400 mb-0.5">
+                              <span className="font-mono">{item.start_time}</span>
+                              <span className="text-slate-600">-</span>
+                              <span className="font-mono">{item.end_time}</span>
+                              {isTask && item.task && (
+                                <span className={`flex items-center gap-1 ${pc.text}`}>
+                                  <span className={`w-1 h-1 rounded-full ${pc.dot}`} />
+                                  {pc.label}
                                 </span>
                               )}
+                              {isLunch && <span className="text-emerald-400">Lunch</span>}
+                              {isBreak && <span className="text-slate-500">Break</span>}
                             </div>
-                            <div className="text-lg mt-1">{item.title}</div>
+                            <div className={`font-medium text-sm ${
+                              item.completed ? 'line-through text-slate-500' :
+                              isTask ? 'text-white' : 'text-slate-400'
+                            }`}>
+                              {item.title}
+                            </div>
                           </div>
-                          {item.item_type === 'task' && (
-                            <label className="flex items-center gap-2 cursor-pointer ml-3">
+
+                          {/* Checkbox */}
+                          {isTask && (
+                            <div className="flex-shrink-0 mt-1">
                               <input
                                 type="checkbox"
                                 checked={item.completed}
                                 onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
-                                className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500 focus:ring-2 cursor-pointer"
+                                className="custom-checkbox"
                               />
-                              <span className="text-sm text-gray-400">Complete</span>
-                            </label>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

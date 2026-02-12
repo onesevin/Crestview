@@ -34,72 +34,81 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
-        <div>
-          <h2 className="text-center text-3xl font-bold text-gray-900">
-            Work Scheduler
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            {isSignUp ? 'Create your account' : 'Sign in to your account'}
-          </p>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleAuth}>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Email address"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Password"
-              />
-            </div>
-          </div>
+    <div className="min-h-screen flex items-center justify-center bg-[#0B0F1A] relative overflow-hidden">
+      {/* Subtle radial gradient background */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.15)_0%,_transparent_50%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.1)_0%,_transparent_50%)]" />
 
-          <div>
+      <div className="relative z-10 max-w-md w-full mx-4 animate-fade-in">
+        <div className="glass-card p-8 space-y-8">
+          <div className="text-center">
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
+              TaskFlow
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              {isSignUp ? 'Create your account' : 'Sign in to your account'}
+            </p>
+          </div>
+          <form className="space-y-5" onSubmit={handleAuth}>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1.5">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-white/5 border border-white/10 text-white rounded-lg placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all duration-200"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1.5">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-white/5 border border-white/10 text-white rounded-lg placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all duration-200"
+                  placeholder="Enter your password"
+                />
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="gradient-btn w-full flex justify-center py-2.5 px-4 text-sm font-medium rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             >
-              {loading ? 'Loading...' : isSignUp ? 'Sign up' : 'Sign in'}
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin-slow" />
+                  <span>Loading...</span>
+                </div>
+              ) : isSignUp ? 'Sign up' : 'Sign in'}
             </button>
-          </div>
 
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-sm text-blue-600 hover:text-blue-500"
-            >
-              {isSignUp
-                ? 'Already have an account? Sign in'
-                : "Don't have an account? Sign up"}
-            </button>
-          </div>
-        </form>
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => setIsSignUp(!isSignUp)}
+                className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors duration-200"
+              >
+                {isSignUp
+                  ? 'Already have an account? Sign in'
+                  : "Don't have an account? Sign up"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

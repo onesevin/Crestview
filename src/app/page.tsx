@@ -18,10 +18,15 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Work Scheduler</h1>
-        <p className="text-gray-600">Loading...</p>
+    <div className="min-h-screen flex items-center justify-center bg-[#0B0F1A]">
+      <div className="text-center animate-fade-in">
+        <div className="inline-block mb-6">
+          <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin-slow" />
+        </div>
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent mb-2">
+          TaskFlow
+        </h1>
+        <p className="text-slate-400 text-sm">Loading...</p>
       </div>
     </div>
   );
