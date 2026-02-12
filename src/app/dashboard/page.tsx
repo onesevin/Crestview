@@ -456,6 +456,19 @@ Return ONLY valid JSON:
   };
 
   const generateScheduleForDay = async (date: string, dayTasks: Task[], hours: number) => {
+    // Delete any existing schedule for this date first
+    const { data: existing } = await supabase
+      .from('schedules')
+      .select('id')
+      .eq('schedule_date', date)
+      .eq('user_id', user.id)
+      .single();
+
+    if (existing) {
+      await supabase.from('schedule_items').delete().eq('schedule_id', existing.id);
+      await supabase.from('schedules').delete().eq('id', existing.id);
+    }
+
     const taskDescriptions = dayTasks.map(t =>
       `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
     );
@@ -843,17 +856,25 @@ Return ONLY valid JSON:
                           </div>
                         )}
 
-                        {/* Break / Lunch separator */}
+                        {/* Break / Lunch block */}
                         {group.separator && (
-                          <div className="flex items-center gap-3 px-2 py-2">
-                            <div className="h-px flex-1 bg-white/[0.04]" />
-                            <span className="text-[11px] text-slate-700 font-mono">
-                              {group.separator.start_time} - {group.separator.end_time}
-                            </span>
-                            <span className="text-[11px] text-slate-600">
-                              {group.separator.item_type === 'lunch' ? 'Lunch' : 'Break'}
-                            </span>
-                            <div className="h-px flex-1 bg-white/[0.04]" />
+                          <div className={`rounded-xl px-4 py-3 border ${
+                            group.separator.item_type === 'lunch'
+                              ? 'bg-[#b8a078]/[0.04] border-[#b8a078]/10'
+                              : 'bg-white/[0.02] border-white/[0.04]'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-medium ${
+                                  group.separator.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
+                                }`}>
+                                  {group.separator.title}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-slate-600 font-mono">
+                                {group.separator.start_time} - {group.separator.end_time}
+                              </span>
+                            </div>
                           </div>
                         )}
                       </div>
