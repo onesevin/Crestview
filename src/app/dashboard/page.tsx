@@ -583,9 +583,9 @@ Return ONLY valid JSON:
   };
 
   const priorityConfig = {
-    high: { dot: 'bg-red-400', text: 'text-red-400', label: 'High' },
-    medium: { dot: 'bg-amber-400', text: 'text-amber-400', label: 'Medium' },
-    low: { dot: 'bg-sky-400', text: 'text-sky-400', label: 'Low' },
+    high: { dot: 'bg-red-400', text: 'text-red-400', label: 'High', border: 'border-l-red-400' },
+    medium: { dot: 'bg-amber-400', text: 'text-amber-400', label: 'Medium', border: 'border-l-amber-400' },
+    low: { dot: 'bg-sky-400', text: 'text-sky-400', label: 'Low', border: 'border-l-sky-400' },
   };
 
   if (!user) {
@@ -721,54 +721,68 @@ Return ONLY valid JSON:
                 ) : (
                   tasks.map((task) => {
                     const pc = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig.medium;
+                    const isOverdue = task.due_date && task.due_date < format(new Date(), 'yyyy-MM-dd');
+                    const isDueToday = task.due_date && task.due_date === format(new Date(), 'yyyy-MM-dd');
                     return (
                       <div
                         key={task.id}
-                        className="group bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 glow-border"
+                        className={`group bg-white/[0.03] border border-white/[0.06] border-l-2 ${pc.border} rounded-lg pl-3.5 pr-3 py-3 glow-border`}
                       >
-                        <div className="flex justify-between items-start">
+                        <div className="flex justify-between items-start gap-2">
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-white text-sm leading-snug">{task.title}</div>
                             {task.description && (
-                              <div className="text-xs text-slate-400 mt-1 line-clamp-2">
+                              <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">
                                 {task.description}
-                              </div>
-                            )}
-                            <div className="flex gap-2 items-center mt-2.5 flex-wrap">
-                              <select
-                                value={task.priority}
-                                onChange={(e) => handleChangePriority(task.id, e.target.value as any)}
-                                className={`text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 ${pc.text} cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all`}
-                              >
-                                <option value="high">High</option>
-                                <option value="medium">Medium</option>
-                                <option value="low">Low</option>
-                              </select>
-                              <span className="flex items-center gap-1.5">
-                                <span className={`w-1.5 h-1.5 rounded-full ${pc.dot}`} />
-                                <span className={`text-xs ${pc.text}`}>{pc.label}</span>
-                              </span>
-                              <input
-                                type="date"
-                                value={task.due_date || ''}
-                                onChange={(e) => handleDueDateChange(task.id, e.target.value)}
-                                className="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all [color-scheme:dark]"
-                              />
-                            </div>
-                            {task.due_date && (
-                              <div className="text-xs text-slate-400 mt-1.5">
-                                Due {format(new Date(task.due_date + 'T00:00:00'), 'EEE, MMM d')}
                               </div>
                             )}
                           </div>
                           <button
                             onClick={() => handleDeleteTask(task.id)}
-                            className="ml-3 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 opacity-0 group-hover:opacity-100"
+                            className="p-1 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 opacity-0 group-hover:opacity-100 flex-shrink-0"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                             </svg>
                           </button>
+                        </div>
+                        <div className="flex gap-1.5 items-center mt-2 flex-wrap">
+                          <select
+                            value={task.priority}
+                            onChange={(e) => handleChangePriority(task.id, e.target.value as any)}
+                            className={`text-[11px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 ${pc.text} cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all`}
+                          >
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                          </select>
+                          {task.due_date ? (
+                            <label className={`relative text-[11px] px-1.5 py-0.5 rounded-full cursor-pointer transition-all ${
+                              isOverdue
+                                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                : isDueToday
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'bg-white/5 text-slate-400 border border-white/10 hover:border-white/20'
+                            }`}>
+                              {isOverdue ? 'Overdue' : isDueToday ? 'Today' : format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
+                              <input
+                                type="date"
+                                value={task.due_date}
+                                onChange={(e) => handleDueDateChange(task.id, e.target.value)}
+                                className="absolute inset-0 opacity-0 cursor-pointer [color-scheme:dark]"
+                              />
+                            </label>
+                          ) : (
+                            <label className="relative text-[11px] px-1.5 py-0.5 rounded-full bg-white/5 text-slate-600 border border-white/[0.06] cursor-pointer hover:text-slate-400 hover:border-white/10 transition-all">
+                              + date
+                              <input
+                                type="date"
+                                value=""
+                                onChange={(e) => handleDueDateChange(task.id, e.target.value)}
+                                className="absolute inset-0 opacity-0 cursor-pointer [color-scheme:dark]"
+                              />
+                            </label>
+                          )}
                         </div>
                       </div>
                     );
