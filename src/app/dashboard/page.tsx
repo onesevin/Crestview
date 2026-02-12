@@ -41,6 +41,7 @@ export default function Dashboard() {
     autoAddedItemIds: string[];
   } | null>(null);
   const [patterns, setPatterns] = useState<any[]>([]);
+  const [lunchStart, setLunchStart] = useState('12:00');
   const [activeItem, setActiveItem] = useState<{
     type: string;
     task?: Task;
@@ -534,7 +535,7 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 4000,
         messages: [{
           role: 'user',
@@ -561,7 +562,10 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     });
 
     const data = await response.json();
-    const text = data.content[0].text;
+    if (data.error || !data.content?.[0]?.text) {
+      throw new Error(data.error?.message || 'Failed to parse tasks');
+    }
+    const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
     return JSON.parse(text);
   };
 
@@ -729,6 +733,47 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadScheduleForDate(selectedDate);
   };
 
+  const handleLunchStartChange = async (newTime: string) => {
+    setLunchStart(newTime);
+
+    if (!currentSchedule?.items) return;
+
+    const lunchItem = currentSchedule.items.find(i => i.item_type === 'lunch');
+    if (!lunchItem) return;
+
+    // Update the lunch block duration (keep 30min) and recalculate all times
+    const lunchMinutes = getMinutes(newTime);
+    const updatedItems = currentSchedule.items.map(i => {
+      if (i.id === lunchItem.id) {
+        return { ...i, start_time: newTime, end_time: formatTime(lunchMinutes + 30) };
+      }
+      return i;
+    });
+
+    // Sort: all items before lunch keep order, lunch at its new time, then remaining
+    const beforeLunch = updatedItems.filter(i => i.id !== lunchItem.id && i.item_type !== 'lunch');
+    const lunch = updatedItems.find(i => i.id === lunchItem.id)!;
+
+    // Split items around the lunch time
+    let preLunch: ScheduleItem[] = [];
+    let postLunch: ScheduleItem[] = [];
+    let currentTime = 9 * 60;
+    for (const item of beforeLunch) {
+      const duration = getMinutes(item.end_time) - getMinutes(item.start_time);
+      if (currentTime + duration <= lunchMinutes) {
+        preLunch.push(item);
+        currentTime += duration;
+      } else {
+        postLunch.push(item);
+      }
+    }
+
+    const reordered = [...preLunch, lunch, ...postLunch];
+    const recalculated = recalculateTimeSlots(reordered);
+    setCurrentSchedule({ ...currentSchedule, items: recalculated });
+    await persistReorderedItems(recalculated);
+  };
+
   const handleCompleteTask = async (
     itemId: string,
     taskId: string | null,
@@ -877,7 +922,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-5-20250929',
           max_tokens: 4000,
           messages: [{
             role: 'user',
@@ -891,7 +936,7 @@ RULES:
 - Use each task's estimated duration for block sizing
 - Cross-reference with historical patterns — if a pattern suggests different duration, prefer the pattern
 - High-priority and imminent-deadline tasks in the morning
-- Include 30min lunch break around midday
+- Include 30min lunch break starting at ${lunchStart}
 - Include 5-10min breaks every 60-90min
 - Each task gets its own block
 - Use EXACT task titles from the list above (without the [Priority], [Est], or [Due] tags)
@@ -901,7 +946,7 @@ Return ONLY valid JSON:
   "blocks": [
     {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
     {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break", "estimated_duration": 10},
-    {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
+    {"start_time": "${lunchStart}", "end_time": "${formatTime(getMinutes(lunchStart) + 30)}", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
           }]
@@ -1069,7 +1114,7 @@ Return ONLY valid JSON:
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 4000,
         messages: [{
           role: 'user',
@@ -1083,7 +1128,7 @@ RULES:
 - Use each task's estimated duration for block sizing
 - Cross-reference with historical patterns — if a pattern suggests different duration, prefer the pattern
 - High-priority and imminent-deadline tasks in the morning
-- Include 30min lunch break around midday
+- Include 30min lunch break starting at ${lunchStart}
 - Include 5-10min breaks every 60-90min
 - Each task gets its own block
 - Use EXACT task titles from the list above (without the [Priority], [Est], or [Due] tags)
@@ -1093,7 +1138,7 @@ Return ONLY valid JSON:
   "blocks": [
     {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
     {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break", "estimated_duration": 10},
-    {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
+    {"start_time": "${lunchStart}", "end_time": "${formatTime(getMinutes(lunchStart) + 30)}", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
         }]
@@ -1333,13 +1378,27 @@ Return ONLY valid JSON:
                       {scheduleItems.length} scheduled items
                     </p>
                   </div>
-                  <button
-                    onClick={handleGenerateSchedule}
-                    disabled={loading || tasks.length === 0}
-                    className="btn-primary px-4 py-2 rounded-lg text-sm"
-                  >
-                    Generate Schedule
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      Lunch
+                      <select
+                        value={lunchStart}
+                        onChange={(e) => handleLunchStartChange(e.target.value)}
+                        className="text-[11px] px-1.5 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-slate-400 cursor-pointer focus:outline-none transition-all"
+                      >
+                        {['11:00', '11:30', '12:00', '12:30', '13:00', '13:30'].map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      onClick={handleGenerateSchedule}
+                      disabled={loading || tasks.length === 0}
+                      className="btn-primary px-4 py-2 rounded-lg text-sm"
+                    >
+                      Generate Schedule
+                    </button>
+                  </div>
                 </div>
 
                 {!currentSchedule ? (
