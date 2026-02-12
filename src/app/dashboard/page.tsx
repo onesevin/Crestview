@@ -353,6 +353,8 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       setLoading(false);
     }
   };
+
+  const generateScheduleForDay = async (date: string, dayTasks: Task[], hours: number) => {
     const taskDescriptions = dayTasks.map(t => 
       `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
     );
