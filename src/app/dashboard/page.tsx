@@ -21,6 +21,7 @@ export default function Dashboard() {
     taskTitles: string[];
     rolledBackIds: string[];
   } | null>(null);
+  const [patterns, setPatterns] = useState<any[]>([]);
 
   useEffect(() => {
     // Get current user
@@ -41,6 +42,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (user) {
       loadPendingTasks();
+      loadPatterns();
       loadScheduleForDate(selectedDate);
     }
   }, [user, selectedDate]);
@@ -129,6 +131,15 @@ export default function Dashboard() {
     setTasks(data || []);
   };
 
+  const loadPatterns = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('task_patterns')
+      .select('*')
+      .eq('user_id', user.id);
+    setPatterns(data || []);
+  };
+
   const loadScheduleForDate = async (date: Date) => {
     if (isWeekend(date)) return;
 
@@ -157,7 +168,7 @@ export default function Dashboard() {
         max_tokens: 4000,
         messages: [{
           role: 'user',
-          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), due_date (optional string in YYYY-MM-DD format or null), category ('deep_focus'|'admin'|'quick'), estimated_minutes (number).
+          content: `Parse these tasks into a JSON array. Each task should have: title (string), description (optional string), priority ('high'|'medium'|'low'), due_date (optional string in YYYY-MM-DD format or null), estimated_minutes (number).
 
 Today's date is ${format(new Date(), 'yyyy-MM-dd')} (${format(new Date(), 'EEEE')}).
 
@@ -167,12 +178,9 @@ RULES:
 - Resolve relative dates (e.g. "Wednesday" means the NEXT upcoming Wednesday relative to today).
 - If no deadline is mentioned, set due_date to null.
 
-CATEGORY RULES:
-- deep_focus: coding, writing, design, research, anything requiring sustained concentration
-- admin: emails, Slack, meetings, approvals, status updates, scheduling
-- quick: reviews, follow-ups, small fixes, replies — anything under ~15 min
-
-ESTIMATED_MINUTES: Your best guess at duration. Use values like 5, 10, 15, 30, 45, 60, 90, 120.
+DURATION ESTIMATION:
+${patterns.length > 0 ? `Use these historical patterns from the user's completed tasks to estimate duration:\n${patterns.map(p => `- Tasks matching '${p.task_keywords.join(', ')}' typically take ${p.average_duration}min`).join('\n')}\nIf no pattern matches, use your best guess.` : 'Use your best guess at duration.'}
+Use values like 5, 10, 15, 30, 45, 60, 90, 120.
 
 Input:
 ${input}
@@ -248,7 +256,6 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             title: task.title,
             description: task.description || null,
             priority: task.priority || 'medium',
-            category: task.category || null,
             estimated_minutes: task.estimated_minutes || null,
             due_date: task.due_date || null,
             status: 'pending'
@@ -317,16 +324,6 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadPendingTasks();
   };
 
-  const handleCategoryChange = async (taskId: string, category: string) => {
-    const value = category || null;
-    const { error } = await supabase
-      .from('tasks')
-      .update({ category: value })
-      .eq('id', taskId);
-    if (error) console.error('Failed to update category:', error);
-    await loadPendingTasks();
-  };
-
   const handleEstimatedMinutesChange = async (taskId: string, value: string) => {
     const minutes = parseInt(value);
     const { error } = await supabase
@@ -337,7 +334,14 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadPendingTasks();
   };
 
-  const handleCompleteTask = async (itemId: string, taskId: string | null, currentlyCompleted: boolean) => {
+  const handleCompleteTask = async (
+    itemId: string,
+    taskId: string | null,
+    currentlyCompleted: boolean,
+    startTime?: string,
+    endTime?: string,
+    taskTitle?: string
+  ) => {
     // Toggle completion status
     await supabase
       .from('schedule_items')
@@ -353,6 +357,62 @@ Return ONLY valid JSON array, no markdown, no explanation.`
           completed_at: new Date().toISOString()
         })
         .eq('id', taskId);
+
+      // Learn from completion: update task patterns
+      if (startTime && endTime && taskTitle) {
+        try {
+          const [startH, startM] = startTime.split(':').map(Number);
+          const [endH, endM] = endTime.split(':').map(Number);
+          const actualMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+
+          const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'it', 'up']);
+          const keywords = taskTitle
+            .toLowerCase()
+            .split(/\s+/)
+            .map(w => w.replace(/[^\w]/g, ''))
+            .filter(w => w.length > 3 && !commonWords.has(w))
+            .slice(0, 5);
+
+          if (keywords.length > 0 && actualMinutes > 0) {
+            // Find existing pattern with overlapping keywords
+            const matchingPattern = patterns.find(p =>
+              p.task_keywords.some((kw: string) => keywords.includes(kw))
+            );
+
+            if (matchingPattern) {
+              const newTimesScheduled = matchingPattern.times_scheduled + 1;
+              const newTimesCompleted = matchingPattern.times_completed + 1;
+              const newAvgDuration = Math.round(
+                (matchingPattern.average_duration * matchingPattern.times_scheduled + actualMinutes) / newTimesScheduled
+              );
+              await supabase
+                .from('task_patterns')
+                .update({
+                  average_duration: newAvgDuration,
+                  times_scheduled: newTimesScheduled,
+                  times_completed: newTimesCompleted,
+                  completion_rate: newTimesCompleted / newTimesScheduled,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', matchingPattern.id);
+            } else {
+              await supabase
+                .from('task_patterns')
+                .insert({
+                  user_id: user.id,
+                  task_keywords: keywords,
+                  average_duration: actualMinutes,
+                  times_scheduled: 1,
+                  times_completed: 1,
+                  completion_rate: 1.0
+                });
+            }
+            await loadPatterns();
+          }
+        } catch (err) {
+          console.error('Failed to update task pattern:', err);
+        }
+      }
     }
 
     // If unchecking AND it has a task, mark task back to pending
@@ -396,8 +456,12 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
       // Regenerate with new hours
       const taskDescriptions = tasksToSchedule.map(t =>
-        `${t.title} [Priority: ${t.priority}]${t.category ? ` [Category: ${t.category}]` : ''}${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
+        `${t.title} [Priority: ${t.priority}]${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
       );
+
+      const patternsBlock = patterns.length > 0
+        ? `\nHISTORICAL PATTERNS (use to validate/adjust time block sizes):\n${patterns.map(p => `- Tasks like '${p.task_keywords.join(', ')}' typically take ${p.average_duration}min (completed ${p.times_completed} times)`).join('\n')}\n`
+        : '';
 
       const response = await fetch('/api/claude', {
         method: 'POST',
@@ -411,29 +475,22 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
 TASKS:
 ${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-STRUCTURE THE DAY AS FOLLOWS:
-1. DEEP FOCUS block(s) — morning, uninterrupted 60-120min blocks for deep_focus tasks
-2. ADMIN/MOTION block — batch admin tasks together, typically mid-day or after lunch
-3. QUICK FOLLOW-UPS block — group quick tasks into a single sweep block (15-30min total)
-4. Include 30min lunch break around midday
-5. Include 5-10min breaks between themed blocks
-
+${patternsBlock}
 RULES:
-- Total work time: ${newHours} hours
-- Start: 9:00 AM
+- Total work time: ${newHours} hours, start 9:00 AM
 - Use each task's estimated duration for block sizing
-- Tasks with imminent due dates should be prioritized
-- DO NOT combine tasks — each task gets its own time slot within its block
-- Quick tasks can share a themed block but each gets its own line item
-- Use EXACT task titles from the list above (without the [Priority], [Category], [Est], or [Due] tags)
-- For break blocks between themed sections, use title format: "Break — [next section type]" e.g. "Break — Admin block"
+- Cross-reference with historical patterns — if a pattern suggests different duration, prefer the pattern
+- High-priority and imminent-deadline tasks in the morning
+- Include 30min lunch break around midday
+- Include 5-10min breaks every 60-90min
+- Each task gets its own block
+- Use EXACT task titles from the list above (without the [Priority], [Est], or [Due] tags)
 
 Return ONLY valid JSON:
 {
   "blocks": [
-    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "category": "deep_focus", "estimated_duration": 90},
-    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break — Admin block", "estimated_duration": 10},
+    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
+    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break", "estimated_duration": 10},
     {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
@@ -596,8 +653,12 @@ Return ONLY valid JSON:
     }
 
     const taskDescriptions = dayTasks.map(t =>
-      `${t.title} [Priority: ${t.priority}]${t.category ? ` [Category: ${t.category}]` : ''}${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
+      `${t.title} [Priority: ${t.priority}]${t.estimated_minutes ? ` [Est: ${t.estimated_minutes}min]` : ''}${t.due_date ? ` [Due: ${t.due_date}]` : ''}`
     );
+
+    const patternsBlock = patterns.length > 0
+      ? `\nHISTORICAL PATTERNS (use to validate/adjust time block sizes):\n${patterns.map(p => `- Tasks like '${p.task_keywords.join(', ')}' typically take ${p.average_duration}min (completed ${p.times_completed} times)`).join('\n')}\n`
+      : '';
 
     const response = await fetch('/api/claude', {
       method: 'POST',
@@ -611,29 +672,22 @@ Return ONLY valid JSON:
 
 TASKS:
 ${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-STRUCTURE THE DAY AS FOLLOWS:
-1. DEEP FOCUS block(s) — morning, uninterrupted 60-120min blocks for deep_focus tasks
-2. ADMIN/MOTION block — batch admin tasks together, typically mid-day or after lunch
-3. QUICK FOLLOW-UPS block — group quick tasks into a single sweep block (15-30min total)
-4. Include 30min lunch break around midday
-5. Include 5-10min breaks between themed blocks
-
+${patternsBlock}
 RULES:
-- Total work time: ${hours} hours
-- Start: 9:00 AM
+- Total work time: ${hours} hours, start 9:00 AM
 - Use each task's estimated duration for block sizing
-- Tasks with imminent due dates should be prioritized
-- DO NOT combine tasks — each task gets its own time slot within its block
-- Quick tasks can share a themed block but each gets its own line item
-- Use EXACT task titles from the list above (without the [Priority], [Category], [Est], or [Due] tags)
-- For break blocks between themed sections, use title format: "Break — [next section type]" e.g. "Break — Admin block"
+- Cross-reference with historical patterns — if a pattern suggests different duration, prefer the pattern
+- High-priority and imminent-deadline tasks in the morning
+- Include 30min lunch break around midday
+- Include 5-10min breaks every 60-90min
+- Each task gets its own block
+- Use EXACT task titles from the list above (without the [Priority], [Est], or [Due] tags)
 
 Return ONLY valid JSON:
 {
   "blocks": [
-    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "category": "deep_focus", "estimated_duration": 90},
-    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break — Admin block", "estimated_duration": 10},
+    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
+    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break", "estimated_duration": 10},
     {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
   ]
 }`
@@ -696,12 +750,6 @@ Return ONLY valid JSON:
     high: { dot: 'bg-[#c49286]', text: 'text-[#c49286]', label: 'High', border: 'border-l-[#c49286]' },
     medium: { dot: 'bg-[#b8a078]', text: 'text-[#b8a078]', label: 'Medium', border: 'border-l-[#b8a078]' },
     low: { dot: 'bg-[#8a967e]', text: 'text-[#8a967e]', label: 'Low', border: 'border-l-[#8a967e]' },
-  };
-
-  const categoryConfig = {
-    deep_focus: { color: '#c49286', label: 'Deep Focus', bg: 'bg-[#c49286]/10', text: 'text-[#c49286]', border: 'border-[#c49286]/20' },
-    admin: { color: '#b8a078', label: 'Admin', bg: 'bg-[#b8a078]/10', text: 'text-[#b8a078]', border: 'border-[#b8a078]/20' },
-    quick: { color: '#8a967e', label: 'Quick', bg: 'bg-[#8a967e]/10', text: 'text-[#8a967e]', border: 'border-[#8a967e]/20' },
   };
 
   if (!user) {
@@ -859,7 +907,6 @@ Return ONLY valid JSON:
                 ) : (
                   tasks.map((task) => {
                     const pc = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig.medium;
-                    const cc = task.category ? categoryConfig[task.category as keyof typeof categoryConfig] : null;
                     const isOverdue = task.due_date && task.due_date < format(new Date(), 'yyyy-MM-dd');
                     const isDueToday = task.due_date && task.due_date === format(new Date(), 'yyyy-MM-dd');
                     const isEditing = editingTaskId === task.id;
@@ -914,16 +961,6 @@ Return ONLY valid JSON:
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
                             <option value="low">Low</option>
-                          </select>
-                          <select
-                            value={task.category || ''}
-                            onChange={(e) => handleCategoryChange(task.id, e.target.value as any)}
-                            className={`text-[11px] px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] ${cc ? cc.text : 'text-slate-600'} cursor-pointer focus:outline-none transition-all`}
-                          >
-                            <option value="">Category</option>
-                            <option value="deep_focus">Deep Focus</option>
-                            <option value="admin">Admin</option>
-                            <option value="quick">Quick</option>
                           </select>
                           <select
                             value={task.estimated_minutes || ''}
@@ -1021,119 +1058,74 @@ Return ONLY valid JSON:
                       groups.push({ tasks: currentGroup });
                     }
 
-                    // Infer category for a group from its tasks
-                    const inferGroupCategory = (groupTasks: ScheduleItem[]) => {
-                      for (const item of groupTasks) {
-                        // Try from joined task data
-                        if (item.task?.category) return item.task.category;
-                        // Fallback: look up in tasks state
-                        if (item.task_id) {
-                          const stateTask = tasks.find(t => t.id === item.task_id);
-                          if (stateTask?.category) return stateTask.category;
-                        }
-                      }
-                      return null;
-                    };
+                    return groups.map((group, groupIndex) => (
+                      <div key={groupIndex}>
+                        {/* Task block */}
+                        {group.tasks.length > 0 && (
+                          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+                            {group.tasks.map((item, itemIndex) => {
+                              const priority = item.task?.priority || 'low';
+                              const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
 
-                    // Parse category from a break title like "Break — Admin block"
-                    const parseCategoryFromBreak = (title: string): 'deep_focus' | 'admin' | 'quick' | null => {
-                      const lower = title.toLowerCase();
-                      if (lower.includes('deep focus')) return 'deep_focus';
-                      if (lower.includes('admin')) return 'admin';
-                      if (lower.includes('quick')) return 'quick';
-                      return null;
-                    };
+                              return (
+                                <div
+                                  key={item.id}
+                                  className={`flex items-center gap-3 px-4 py-3 transition-all duration-150 hover:bg-white/[0.02] ${
+                                    itemIndex > 0 ? 'border-t border-white/[0.04]' : ''
+                                  } ${item.completed ? 'opacity-40' : ''}`}
+                                >
+                                  {/* Priority dot */}
+                                  <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
 
-                    return groups.map((group, groupIndex) => {
-                      let groupCategory = group.tasks.length > 0 ? inferGroupCategory(group.tasks) : null;
-
-                      // Fallback: check previous group's separator for category hint
-                      if (!groupCategory && groupIndex > 0 && group.tasks.length > 0) {
-                        const prevSep = groups[groupIndex - 1]?.separator;
-                        if (prevSep?.title) {
-                          groupCategory = parseCategoryFromBreak(prevSep.title);
-                        }
-                      }
-
-                      const gc = groupCategory ? categoryConfig[groupCategory as keyof typeof categoryConfig] : null;
-
-                      return (
-                        <div key={groupIndex}>
-                          {/* Task block */}
-                          {group.tasks.length > 0 && (
-                            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
-                              {/* Category header */}
-                              {gc && (
-                                <div className={`px-4 py-1.5 border-b border-white/[0.04] ${gc.bg}`}>
-                                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${gc.text}`}>
-                                    {gc.label}
-                                  </span>
-                                </div>
-                              )}
-                              {group.tasks.map((item, itemIndex) => {
-                                const priority = item.task?.priority || 'low';
-                                const pc = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.low;
-
-                                return (
-                                  <div
-                                    key={item.id}
-                                    className={`flex items-center gap-3 px-4 py-3 transition-all duration-150 hover:bg-white/[0.02] ${
-                                      itemIndex > 0 || gc ? 'border-t border-white/[0.04]' : ''
-                                    } ${item.completed ? 'opacity-40' : ''}`}
-                                  >
-                                    {/* Priority dot */}
-                                    <div className={`w-2 h-2 rounded-full ${pc.dot} flex-shrink-0`} />
-
-                                    {/* Content */}
-                                    <div className="flex-1 min-w-0">
-                                      <div className={`text-sm font-medium ${
-                                        item.completed ? 'line-through text-slate-600' : 'text-slate-200'
-                                      }`}>
-                                        {item.title}
-                                      </div>
-                                      <div className="flex items-center gap-1.5 mt-0.5">
-                                        <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
-                                        <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
-                                      </div>
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className={`text-sm font-medium ${
+                                      item.completed ? 'line-through text-slate-600' : 'text-slate-200'
+                                    }`}>
+                                      {item.title}
                                     </div>
-
-                                    {/* Checkbox */}
-                                    <input
-                                      type="checkbox"
-                                      checked={item.completed}
-                                      onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed)}
-                                      className="custom-checkbox flex-shrink-0"
-                                    />
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
+                                      <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
+                                    </div>
                                   </div>
-                                );
-                              })}
-                            </div>
-                          )}
 
-                          {/* Break / Lunch block */}
-                          {group.separator && (
-                            <div className={`rounded-xl px-4 py-3 border ${
-                              group.separator.item_type === 'lunch'
-                                ? 'bg-[#b8a078]/[0.04] border-[#b8a078]/10'
-                                : 'bg-white/[0.02] border-white/[0.04]'
-                            }`}>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-sm font-medium ${
-                                    group.separator.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
-                                  }`}>
-                                    {group.separator.title}
-                                  </span>
+                                  {/* Checkbox */}
+                                  <input
+                                    type="checkbox"
+                                    checked={item.completed}
+                                    onChange={() => handleCompleteTask(item.id, item.task_id || null, item.completed, item.start_time, item.end_time, item.title)}
+                                    className="custom-checkbox flex-shrink-0"
+                                  />
                                 </div>
-                                <span className="text-[11px] text-slate-600 font-mono">
-                                  {group.separator.start_time} - {group.separator.end_time}
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Break / Lunch block */}
+                        {group.separator && (
+                          <div className={`rounded-xl px-4 py-3 border ${
+                            group.separator.item_type === 'lunch'
+                              ? 'bg-[#b8a078]/[0.04] border-[#b8a078]/10'
+                              : 'bg-white/[0.02] border-white/[0.04]'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-medium ${
+                                  group.separator.item_type === 'lunch' ? 'text-[#b8a078]' : 'text-slate-500'
+                                }`}>
+                                  {group.separator.title}
                                 </span>
                               </div>
+                              <span className="text-[11px] text-slate-600 font-mono">
+                                {group.separator.start_time} - {group.separator.end_time}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    });
+                          </div>
+                        )}
+                      </div>
+                    ));
                   })()}
                 </div>
               )}
