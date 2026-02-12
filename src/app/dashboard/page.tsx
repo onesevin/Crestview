@@ -325,10 +325,26 @@ export default function Dashboard() {
 
   const addTaskToDay = async (task: Task, dateStr: string, insertAtItemId?: string) => {
     // Remove any existing schedule_items for this task (prevents duplicates across days)
-    await supabase
+    // First find the items, then delete by their IDs for reliability with RLS
+    const { data: existingTaskItems } = await supabase
       .from('schedule_items')
-      .delete()
+      .select('id')
       .eq('task_id', task.id);
+
+    if (existingTaskItems && existingTaskItems.length > 0) {
+      await supabase
+        .from('schedule_items')
+        .delete()
+        .in('id', existingTaskItems.map(i => i.id));
+    }
+
+    // Optimistically remove from current schedule UI
+    if (currentSchedule?.items) {
+      const filtered = currentSchedule.items.filter(i => i.task_id !== task.id);
+      if (filtered.length !== currentSchedule.items.length) {
+        setCurrentSchedule({ ...currentSchedule, items: filtered });
+      }
+    }
 
     // Find or create schedule for the date
     let { data: schedule } = await supabase
@@ -561,8 +577,12 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       })
     });
 
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `API returned ${response.status}`);
+    }
     const data = await response.json();
-    if (data.error || !data.content?.[0]?.text) {
+    if (data.type === 'error' || data.error || !data.content?.[0]?.text) {
       throw new Error(data.error?.message || 'Failed to parse tasks');
     }
     const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
@@ -641,9 +661,9 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       await loadPendingTasks();
       alert(`Successfully added ${createdTasks.length} task(s)!`);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding tasks:', error);
-      alert('Failed to add tasks');
+      alert(`Failed to add tasks: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
