@@ -255,30 +255,39 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       if (shouldRegenerate) {
         setLoading(true);
         try {
-          // Delete existing schedule items first
-          const { error: itemsError } = await supabase
+          // First, get all schedule_items for this schedule to delete them
+          const { data: itemsToDelete } = await supabase
             .from('schedule_items')
-            .delete()
+            .select('id')
             .eq('schedule_id', existingSchedule.id);
           
-          if (itemsError) {
-            console.error('Error deleting schedule items:', itemsError);
-            throw itemsError;
+          // Delete schedule items
+          if (itemsToDelete && itemsToDelete.length > 0) {
+            const { error: itemsError } = await supabase
+              .from('schedule_items')
+              .delete()
+              .in('id', itemsToDelete.map(item => item.id));
+            
+            if (itemsError) {
+              console.error('Error deleting schedule items:', itemsError);
+              throw itemsError;
+            }
           }
           
-          // Then delete the schedule
+          // Delete the schedule by user_id and date (not by id)
           const { error: schedError } = await supabase
             .from('schedules')
             .delete()
-            .eq('id', existingSchedule.id);
+            .eq('user_id', user.id)
+            .eq('schedule_date', dateStr);
           
           if (schedError) {
             console.error('Error deleting schedule:', schedError);
             throw schedError;
           }
           
-          // Wait a moment to ensure delete completes
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Wait to ensure delete completes
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
           // Get tasks for this day from the old schedule or use current tasks
           const tasksToSchedule = tasks.length > 0 ? tasks : [];
