@@ -583,9 +583,9 @@ Return ONLY valid JSON:
   };
 
   const priorityConfig = {
-    high: { dot: 'bg-red-400', text: 'text-red-400', label: 'High', border: 'border-l-red-400/60' },
-    medium: { dot: 'bg-amber-400', text: 'text-amber-400', label: 'Medium', border: 'border-l-amber-400/60' },
-    low: { dot: 'bg-zinc-500', text: 'text-zinc-500', label: 'Low', border: 'border-l-zinc-600' },
+    high: { dot: 'bg-zinc-300', text: 'text-zinc-300', label: 'High', border: 'border-l-zinc-300' },
+    medium: { dot: 'bg-zinc-500', text: 'text-zinc-500', label: 'Medium', border: 'border-l-zinc-500' },
+    low: { dot: 'bg-zinc-700', text: 'text-zinc-700', label: 'Low', border: 'border-l-zinc-700' },
   };
 
   if (!user) {
@@ -751,9 +751,9 @@ Return ONLY valid JSON:
                           {task.due_date ? (
                             <label className={`relative text-[11px] px-1.5 py-0.5 rounded cursor-pointer transition-all ${
                               isOverdue
-                                ? 'bg-red-500/10 text-red-400 border border-red-500/15'
+                                ? 'bg-white/[0.06] text-zinc-300 border border-white/10'
                                 : isDueToday
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/15'
+                                ? 'bg-white/[0.04] text-zinc-400 border border-white/[0.08]'
                                 : 'bg-white/[0.03] text-slate-500 border border-white/[0.06] hover:border-white/10'
                             }`}>
                               {isOverdue ? 'Overdue' : isDueToday ? 'Today' : format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
@@ -825,8 +825,8 @@ Return ONLY valid JSON:
                       const isBreak = item.item_type === 'break';
 
                       const dotColor = isTask
-                        ? (priority === 'high' ? 'bg-red-400' : priority === 'medium' ? 'bg-amber-400' : 'bg-zinc-500')
-                        : 'bg-zinc-700';
+                        ? (priority === 'high' ? 'bg-zinc-300' : priority === 'medium' ? 'bg-zinc-500' : 'bg-zinc-700')
+                        : 'bg-zinc-800';
 
                       return (
                         <div
