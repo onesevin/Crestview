@@ -583,9 +583,9 @@ Return ONLY valid JSON:
   };
 
   const priorityConfig = {
-    high: { dot: 'bg-zinc-300', text: 'text-zinc-300', label: 'High', border: 'border-l-zinc-300' },
-    medium: { dot: 'bg-zinc-500', text: 'text-zinc-500', label: 'Medium', border: 'border-l-zinc-500' },
-    low: { dot: 'bg-zinc-700', text: 'text-zinc-700', label: 'Low', border: 'border-l-zinc-700' },
+    high: { dot: 'bg-[#d4b896]', text: 'text-[#d4b896]', label: 'High', border: 'border-l-[#d4b896]' },
+    medium: { dot: 'bg-[#9a8978]', text: 'text-[#9a8978]', label: 'Medium', border: 'border-l-[#9a8978]' },
+    low: { dot: 'bg-[#5c534a]', text: 'text-[#5c534a]', label: 'Low', border: 'border-l-[#5c534a]' },
   };
 
   if (!user) {
@@ -751,9 +751,9 @@ Return ONLY valid JSON:
                           {task.due_date ? (
                             <label className={`relative text-[11px] px-1.5 py-0.5 rounded cursor-pointer transition-all ${
                               isOverdue
-                                ? 'bg-white/[0.06] text-zinc-300 border border-white/10'
+                                ? 'bg-[#d4b896]/10 text-[#d4b896] border border-[#d4b896]/20'
                                 : isDueToday
-                                ? 'bg-white/[0.04] text-zinc-400 border border-white/[0.08]'
+                                ? 'bg-[#9a8978]/10 text-[#9a8978] border border-[#9a8978]/20'
                                 : 'bg-white/[0.03] text-slate-500 border border-white/[0.06] hover:border-white/10'
                             }`}>
                               {isOverdue ? 'Overdue' : isDueToday ? 'Today' : format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
@@ -825,7 +825,7 @@ Return ONLY valid JSON:
                       const isBreak = item.item_type === 'break';
 
                       const dotColor = isTask
-                        ? (priority === 'high' ? 'bg-zinc-300' : priority === 'medium' ? 'bg-zinc-500' : 'bg-zinc-700')
+                        ? (priority === 'high' ? 'bg-[#d4b896]' : priority === 'medium' ? 'bg-[#9a8978]' : 'bg-[#5c534a]')
                         : 'bg-zinc-800';
 
                       return (
