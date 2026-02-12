@@ -2,6 +2,7 @@
 
 import { Task, ScheduleItem } from '@/types';
 import { TASK_LIST_ITEM, SCHEDULE_ITEM } from '@/lib/dnd-constants';
+import { formatDisplayTime } from '@/lib/format-time';
 
 interface DragOverlayContentProps {
   activeItem: {
@@ -53,7 +54,7 @@ export default function DragOverlayContent({ activeItem, priorityConfig }: DragO
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-slate-100">{item.title}</div>
           <div className="text-[11px] text-slate-600 font-mono mt-0.5">
-            {item.start_time} - {item.end_time}
+            {formatDisplayTime(item.start_time)} - {formatDisplayTime(item.end_time)}
           </div>
         </div>
       </div>

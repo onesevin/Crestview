@@ -4,6 +4,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ScheduleItem } from '@/types';
 import { SCHEDULE_ITEM } from '@/lib/dnd-constants';
+import { formatDisplayTime } from '@/lib/format-time';
 
 interface ScheduleItemCardProps {
   item: ScheduleItem;
@@ -54,7 +55,7 @@ export default function ScheduleItemCard({ item, pc, onComplete, dateStr, isDrag
             {item.title}
           </span>
           <span className="text-[11px] text-slate-600 font-mono">
-            {item.start_time} - {item.end_time}
+            {formatDisplayTime(item.start_time)} - {formatDisplayTime(item.end_time)}
           </span>
         </div>
       </div>

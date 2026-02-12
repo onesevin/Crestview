@@ -22,6 +22,7 @@ import ScheduleItemCard from '@/components/ScheduleItemCard';
 import WeekDayButton from '@/components/WeekDayButton';
 import ScheduleDropZone from '@/components/ScheduleDropZone';
 import DragOverlayContent from '@/components/DragOverlayContent';
+import { formatDisplayTime } from '@/lib/format-time';
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -120,6 +121,7 @@ export default function Dashboard() {
         )
       `)
       .eq('schedule_date', dateStr)
+      .order('start_time', { referencedTable: 'schedule_items' })
       .single();
 
     setCurrentSchedule(data);
@@ -416,16 +418,32 @@ export default function Dashboard() {
     await loadScheduleForDate(selectedDate);
   };
 
-  const moveScheduleItemToDay = async (item: ScheduleItem, sourceDateStr: string, targetDateStr: string) => {
-    // Delete from source
-    await supabase
-      .from('schedule_items')
-      .delete()
-      .eq('id', item.id);
+  const moveScheduleItemToDay = async (item: ScheduleItem, _sourceDateStr: string, targetDateStr: string) => {
+    // Delete ALL schedule items for this task across all days (prevents duplicates)
+    if (item.task_id) {
+      const { data: existingItems } = await supabase
+        .from('schedule_items')
+        .select('id')
+        .eq('task_id', item.task_id);
 
-    // Recalculate source schedule times
+      if (existingItems && existingItems.length > 0) {
+        await supabase
+          .from('schedule_items')
+          .delete()
+          .in('id', existingItems.map(i => i.id));
+      }
+    } else {
+      await supabase
+        .from('schedule_items')
+        .delete()
+        .eq('id', item.id);
+    }
+
+    // Optimistic update: remove from current schedule
     if (currentSchedule?.items) {
-      const remaining = currentSchedule.items.filter(i => i.id !== item.id);
+      const remaining = currentSchedule.items.filter(i =>
+        i.id !== item.id && (item.task_id ? i.task_id !== item.task_id : true)
+      );
       const recalculated = recalculateTimeSlots(remaining);
       setCurrentSchedule({ ...currentSchedule, items: recalculated });
       await persistReorderedItems(recalculated);
@@ -958,6 +976,9 @@ Return ONLY valid JSON:
       });
 
       const data = await response.json();
+      if (!response.ok || data.type === 'error' || !data.content?.[0]?.text) {
+        throw new Error(data.error?.message || 'Claude API returned an error');
+      }
       const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
       const schedule = JSON.parse(text);
 
@@ -1003,61 +1024,45 @@ Return ONLY valid JSON:
 
   const handleGenerateSchedule = async () => {
     if (busyRef.current) return;
-    if (tasks.length === 0) {
-      alert('Please add some tasks first!');
+
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    const hours = workHours[dateStr] || 6;
+
+    // Collect tasks for this day: already scheduled on this day + pending/rolled-over tasks
+    let dayTasks: Task[] = [];
+
+    if (currentSchedule?.items) {
+      const scheduledTasks = currentSchedule.items
+        .filter((i: ScheduleItem) => i.task_id && i.task)
+        .map((i: ScheduleItem) => i.task as Task);
+      dayTasks.push(...scheduledTasks);
+    }
+
+    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'rolled_over');
+    dayTasks.push(...pendingTasks);
+
+    // Deduplicate
+    const seen = new Set<string>();
+    dayTasks = dayTasks.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+
+    if (dayTasks.length === 0) {
+      alert('No tasks to schedule! Add some tasks first.');
       return;
     }
 
     busyRef.current = true;
     setLoading(true);
     try {
-      const weekDates = getWeekDates();
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const remainingDates = weekDates.filter(date => {
-        const d = new Date(date);
-        d.setHours(0, 0, 0, 0);
-        return d >= today;
-      });
-
-      if (remainingDates.length === 0) {
-        alert('No remaining days in this week!');
-        setLoading(false);
-        return;
-      }
-
-      const tasksPerDay: Task[][] = remainingDates.map(() => []);
-
-      const sortByPriority = (a: Task, b: Task) => {
-        const order = { high: 0, medium: 1, low: 2 };
-        return order[a.priority] - order[b.priority];
-      };
-
-      const sortedTasks = [...tasks].sort(sortByPriority);
-      sortedTasks.forEach((task, index) => {
-        const dayIndex = index % remainingDates.length;
-        tasksPerDay[dayIndex].push(task);
-      });
-
-      for (let i = 0; i < remainingDates.length; i++) {
-        const date = remainingDates[i];
-        const dateStr = format(date, 'yyyy-MM-dd');
-        const hours = workHours[dateStr] || 6;
-        const dayTasks = tasksPerDay[i];
-
-        if (dayTasks.length === 0) continue;
-
-        await generateScheduleForDay(dateStr, dayTasks, hours);
-      }
-
+      await generateScheduleForDay(dateStr, dayTasks, hours);
       await loadScheduleForDate(selectedDate);
       await loadPendingTasks();
-      alert('Generated schedules from today through Friday!');
-
     } catch (error) {
       console.error('Error:', error);
-      alert('Failed to generate schedules');
+      alert('Failed to generate schedule');
     } finally {
       busyRef.current = false;
       setLoading(false);
@@ -1121,6 +1126,9 @@ Return ONLY valid JSON:
     });
 
     const data = await response.json();
+    if (!response.ok || data.type === 'error' || !data.content?.[0]?.text) {
+      throw new Error(data.error?.message || 'Claude API returned an error');
+    }
     const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
     const schedule = JSON.parse(text);
 
@@ -1361,7 +1369,7 @@ Return ONLY valid JSON:
                         className="text-[11px] px-1.5 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-slate-400 cursor-pointer focus:outline-none transition-all"
                       >
                         {['11:00', '11:30', '12:00', '12:30', '13:00', '13:30'].map(t => (
-                          <option key={t} value={t}>{t}</option>
+                          <option key={t} value={t}>{formatDisplayTime(t)}</option>
                         ))}
                       </select>
                     </label>
