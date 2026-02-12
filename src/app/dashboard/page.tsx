@@ -31,7 +31,6 @@ export default function Dashboard() {
   const [taskInput, setTaskInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [workHours, setWorkHours] = useState<Record<string, number>>({});
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [rolloverNotification, setRolloverNotification] = useState<{
@@ -362,7 +361,7 @@ export default function Dashboard() {
         .insert({
           user_id: user.id,
           schedule_date: dateStr,
-          schedule_data: { total_hours: 6, work_blocks: 1, break_blocks: 0 },
+          schedule_data: { total_hours: 7, work_blocks: 1, break_blocks: 0 },
         })
         .select()
         .single();
@@ -463,7 +462,7 @@ export default function Dashboard() {
         .insert({
           user_id: user.id,
           schedule_date: targetDateStr,
-          schedule_data: { total_hours: 6, work_blocks: 1, break_blocks: 0 },
+          schedule_data: { total_hours: 7, work_blocks: 1, break_blocks: 0 },
         })
         .select()
         .single();
@@ -889,180 +888,57 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
   // --- Schedule generation ---
 
-  const handleWorkHoursChange = async (dateStr: string, newHours: number) => {
-    // Synchronous guard — prevents concurrent regeneration from rapid clicks
-    if (busyRef.current) return;
-
-    setWorkHours({ ...workHours, [dateStr]: newHours });
-
-    const { data: existingSchedule } = await supabase
-      .from('schedules')
-      .select('id')
-      .eq('schedule_date', dateStr)
-      .eq('user_id', user.id)
-      .single();
-
-    if (!existingSchedule) return;
-
-    // Get the tasks that were on THIS day's schedule (not all tasks)
-    const { data: existingItems } = await supabase
-      .from('schedule_items')
-      .select('*, task:tasks(*)')
-      .eq('schedule_id', existingSchedule.id);
-
-    const dayTasks = (existingItems || [])
-      .filter((item: any) => item.task_id && item.task)
-      .map((item: any) => item.task as Task);
-
-    // Deduplicate by task id
-    const seen = new Set<string>();
-    const tasksToSchedule = dayTasks.filter(t => {
-      if (seen.has(t.id)) return false;
-      seen.add(t.id);
-      return true;
-    });
-
-    if (tasksToSchedule.length === 0) return;
-
-    busyRef.current = true;
-    setLoading(true);
-    try {
-      await supabase
-        .from('schedule_items')
-        .delete()
-        .eq('schedule_id', existingSchedule.id);
-
-      const taskDescriptions = tasksToSchedule.map(t =>
-        `${t.title} [Priority: ${t.priority}]${t.estimated_duration ? ` [Est: ${t.estimated_duration}min]` : ''}`
-      );
-
-      const patternsBlock = patterns.length > 0
-        ? `\nHISTORICAL PATTERNS (use to validate/adjust time block sizes):\n${patterns.map(p => `- Tasks like '${p.task_keywords.join(', ')}' typically take ${p.average_duration}min (completed ${p.times_completed} times)`).join('\n')}\n`
-        : '';
-
-      const response = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 4000,
-          messages: [{
-            role: 'user',
-            content: `Generate a ${newHours}-hour work schedule for ${dateStr}.
-
-TASKS:
-${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-${patternsBlock}
-RULES:
-- Total work time: ${newHours} hours, start 9:00 AM
-- Use each task's estimated duration for block sizing
-- Cross-reference with historical patterns — if a pattern suggests different duration, prefer the pattern
-- High-priority and imminent-deadline tasks in the morning
-- Include 30min lunch break starting at ${lunchStart}
-- Include 5-10min breaks every 60-90min
-- Each task gets its own block
-- Use EXACT task titles from the list above (without the [Priority], [Est], or [Due] tags)
-
-Return ONLY valid JSON:
-{
-  "blocks": [
-    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
-    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Break", "estimated_duration": 10},
-    {"start_time": "${lunchStart}", "end_time": "${formatTime(getMinutes(lunchStart) + 30)}", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
-  ]
-}`
-          }]
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok || data.type === 'error' || !data.content?.[0]?.text) {
-        throw new Error(data.error?.message || 'Claude API returned an error');
-      }
-      const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
-      const schedule = JSON.parse(text);
-
-      await supabase
-        .from('schedules')
-        .update({
-          schedule_data: {
-            total_hours: newHours,
-            work_blocks: schedule.blocks.filter((b: any) => b.type === 'task').length,
-            break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length
-          }
-        })
-        .eq('id', existingSchedule.id);
-
-      const items = schedule.blocks.map((block: any) => {
-        const matchingTask = tasksToSchedule.find(t =>
-          block.title.toLowerCase().includes(t.title.toLowerCase()) ||
-          t.title.toLowerCase().includes(block.title.toLowerCase())
-        );
-        return {
-          schedule_id: existingSchedule.id,
-          task_id: matchingTask?.id || null,
-          start_time: block.start_time,
-          end_time: block.end_time,
-          item_type: block.type,
-          title: block.title,
-          completed: false
-        };
-      });
-
-      await supabase.from('schedule_items').insert(items);
-
-      if (format(selectedDate, 'yyyy-MM-dd') === dateStr) {
-        await loadScheduleForDate(selectedDate);
-      }
-    } catch (error) {
-      console.error('Error regenerating schedule:', error);
-    } finally {
-      busyRef.current = false;
-      setLoading(false);
-    }
-  };
-
   const handleGenerateSchedule = async () => {
     if (busyRef.current) return;
-
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    const hours = workHours[dateStr] || 6;
-
-    // Collect tasks for this day: already scheduled on this day + pending/rolled-over tasks
-    let dayTasks: Task[] = [];
-
-    if (currentSchedule?.items) {
-      const scheduledTasks = currentSchedule.items
-        .filter((i: ScheduleItem) => i.task_id && i.task)
-        .map((i: ScheduleItem) => i.task as Task);
-      dayTasks.push(...scheduledTasks);
-    }
-
-    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'rolled_over');
-    dayTasks.push(...pendingTasks);
-
-    // Deduplicate
-    const seen = new Set<string>();
-    dayTasks = dayTasks.filter(t => {
-      if (seen.has(t.id)) return false;
-      seen.add(t.id);
-      return true;
-    });
-
-    if (dayTasks.length === 0) {
-      alert('No tasks to schedule! Add some tasks first.');
+    if (tasks.length === 0) {
+      alert('Please add some tasks first!');
       return;
     }
 
     busyRef.current = true;
     setLoading(true);
     try {
-      await generateScheduleForDay(dateStr, dayTasks, hours);
+      const weekDates = getWeekDates();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const remainingDates = weekDates.filter(date => {
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
+      });
+
+      if (remainingDates.length === 0) {
+        alert('No remaining days in this week!');
+        busyRef.current = false;
+        setLoading(false);
+        return;
+      }
+
+      // Distribute tasks round-robin by priority across remaining days
+      const tasksPerDay: Task[][] = remainingDates.map(() => []);
+      const sortedTasks = [...tasks].sort((a, b) => {
+        const order = { high: 0, medium: 1, low: 2 };
+        return order[a.priority] - order[b.priority];
+      });
+
+      sortedTasks.forEach((task, index) => {
+        const dayIndex = index % remainingDates.length;
+        tasksPerDay[dayIndex].push(task);
+      });
+
+      for (let i = 0; i < remainingDates.length; i++) {
+        const dateStr = format(remainingDates[i], 'yyyy-MM-dd');
+        const dayTasks = tasksPerDay[i];
+        if (dayTasks.length === 0) continue;
+        await generateScheduleForDay(dateStr, dayTasks, 7);
+      }
+
       await loadScheduleForDate(selectedDate);
       await loadPendingTasks();
     } catch (error) {
       console.error('Error:', error);
-      alert('Failed to generate schedule');
+      alert('Failed to generate schedules');
     } finally {
       busyRef.current = false;
       setLoading(false);
@@ -1080,6 +956,20 @@ Return ONLY valid JSON:
     if (existing) {
       await supabase.from('schedule_items').delete().eq('schedule_id', existing.id);
       await supabase.from('schedules').delete().eq('id', existing.id);
+    }
+
+    // Remove these tasks from any other day's schedule (one task = one day only)
+    const taskIds = dayTasks.map(t => t.id);
+    const { data: staleItems } = await supabase
+      .from('schedule_items')
+      .select('id')
+      .in('task_id', taskIds);
+
+    if (staleItems && staleItems.length > 0) {
+      await supabase
+        .from('schedule_items')
+        .delete()
+        .in('id', staleItems.map(i => i.id));
     }
 
     const taskDescriptions = dayTasks.map(t =>
@@ -1281,8 +1171,6 @@ Return ONLY valid JSON:
                   dateStr={dateStr}
                   isSelected={isSelected}
                   onClick={() => setSelectedDate(date)}
-                  workHours={workHours[dateStr] || 6}
-                  onWorkHoursChange={handleWorkHoursChange}
                 />
               );
             })}
@@ -1375,7 +1263,7 @@ Return ONLY valid JSON:
                     </label>
                     <button
                       onClick={handleGenerateSchedule}
-                      disabled={loading || tasks.length === 0}
+                      disabled={loading}
                       className="btn-primary px-4 py-2 rounded-lg text-sm"
                     >
                       Generate Schedule

@@ -81,7 +81,7 @@ export default function ScheduleItemCard({ item, pc, onComplete, dateStr, isDrag
           {item.title}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-[11px] text-slate-600 font-mono">{item.start_time} - {item.end_time}</span>
+          <span className="text-[11px] text-slate-600 font-mono">{formatDisplayTime(item.start_time)} - {formatDisplayTime(item.end_time)}</span>
           <span className={`text-[11px] ${pc.text}`}>{pc.label}</span>
         </div>
       </div>
