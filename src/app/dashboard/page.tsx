@@ -317,19 +317,23 @@ Return ONLY valid JSON array, no markdown, no explanation.`
     await loadPendingTasks();
   };
 
-  const handleCategoryChange = async (taskId: string, category: 'deep_focus' | 'admin' | 'quick') => {
-    await supabase
+  const handleCategoryChange = async (taskId: string, category: string) => {
+    const value = category || null;
+    const { error } = await supabase
       .from('tasks')
-      .update({ category })
+      .update({ category: value })
       .eq('id', taskId);
+    if (error) console.error('Failed to update category:', error);
     await loadPendingTasks();
   };
 
-  const handleEstimatedMinutesChange = async (taskId: string, minutes: number) => {
-    await supabase
+  const handleEstimatedMinutesChange = async (taskId: string, value: string) => {
+    const minutes = parseInt(value);
+    const { error } = await supabase
       .from('tasks')
-      .update({ estimated_minutes: minutes })
+      .update({ estimated_minutes: isNaN(minutes) ? null : minutes })
       .eq('id', taskId);
+    if (error) console.error('Failed to update estimated minutes:', error);
     await loadPendingTasks();
   };
 
@@ -923,7 +927,7 @@ Return ONLY valid JSON:
                           </select>
                           <select
                             value={task.estimated_minutes || ''}
-                            onChange={(e) => handleEstimatedMinutesChange(task.id, parseInt(e.target.value))}
+                            onChange={(e) => handleEstimatedMinutesChange(task.id, e.target.value)}
                             className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] text-slate-500 cursor-pointer focus:outline-none transition-all"
                           >
                             <option value="">Est.</option>
@@ -1020,13 +1024,37 @@ Return ONLY valid JSON:
                     // Infer category for a group from its tasks
                     const inferGroupCategory = (groupTasks: ScheduleItem[]) => {
                       for (const item of groupTasks) {
+                        // Try from joined task data
                         if (item.task?.category) return item.task.category;
+                        // Fallback: look up in tasks state
+                        if (item.task_id) {
+                          const stateTask = tasks.find(t => t.id === item.task_id);
+                          if (stateTask?.category) return stateTask.category;
+                        }
                       }
                       return null;
                     };
 
+                    // Parse category from a break title like "Break — Admin block"
+                    const parseCategoryFromBreak = (title: string): 'deep_focus' | 'admin' | 'quick' | null => {
+                      const lower = title.toLowerCase();
+                      if (lower.includes('deep focus')) return 'deep_focus';
+                      if (lower.includes('admin')) return 'admin';
+                      if (lower.includes('quick')) return 'quick';
+                      return null;
+                    };
+
                     return groups.map((group, groupIndex) => {
-                      const groupCategory = group.tasks.length > 0 ? inferGroupCategory(group.tasks) : null;
+                      let groupCategory = group.tasks.length > 0 ? inferGroupCategory(group.tasks) : null;
+
+                      // Fallback: check previous group's separator for category hint
+                      if (!groupCategory && groupIndex > 0 && group.tasks.length > 0) {
+                        const prevSep = groups[groupIndex - 1]?.separator;
+                        if (prevSep?.title) {
+                          groupCategory = parseCategoryFromBreak(prevSep.title);
+                        }
+                      }
+
                       const gc = groupCategory ? categoryConfig[groupCategory as keyof typeof categoryConfig] : null;
 
                       return (
