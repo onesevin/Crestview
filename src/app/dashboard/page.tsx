@@ -152,10 +152,12 @@ export default function Dashboard() {
       if (!schedule?.items) continue;
 
       const incompleteItems = schedule.items.filter(
-        (item: any) => item.item_type === 'task' && !item.completed && item.task_id && item.task?.status === 'scheduled'
+        (item: any) => item.item_type === 'task' && !item.completed && item.task_id && item.task && item.task.status !== 'completed'
       );
 
       for (const item of incompleteItems) {
+        // Deduplicate — same task may appear on multiple past days
+        if (rolledTasks.some(t => t.id === item.task_id)) continue;
         rolledTasks.push({
           id: item.task_id!,
           title: item.task?.title || item.title,
@@ -197,7 +199,25 @@ export default function Dashboard() {
         }
       }
 
-      const newItems = rolledTasks.map(task => {
+      // Skip tasks already on today's schedule
+      const existingTaskIds = new Set(existingItems.filter((i: any) => i.task_id).map((i: any) => i.task_id));
+      const tasksToAdd = rolledTasks.filter(t => !existingTaskIds.has(t.id));
+
+      if (tasksToAdd.length === 0) {
+        // All rolled tasks are already on today's schedule — just notify
+        setRolloverNotification({
+          count: rolledTasks.length,
+          taskTitles: rolledTasks.map(t => t.title),
+          rolledBackIds: taskIds,
+          autoAdded: 0,
+          autoAddedItemIds: [],
+        });
+        await loadPendingTasks();
+        await loadScheduleForDate(selectedDate);
+        return;
+      }
+
+      const newItems = tasksToAdd.map(task => {
         const duration = task.estimated_minutes || 30;
         const [h, m] = lastEndTime.split(':').map(Number);
         const startMinutes = h * 60 + m;
@@ -768,7 +788,24 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
     if (!existingSchedule) return;
 
-    const tasksToSchedule = tasks.length > 0 ? tasks : [];
+    // Get the tasks that were on THIS day's schedule (not all tasks)
+    const { data: existingItems } = await supabase
+      .from('schedule_items')
+      .select('*, task:tasks(*)')
+      .eq('schedule_id', existingSchedule.id);
+
+    const dayTasks = (existingItems || [])
+      .filter((item: any) => item.task_id && item.task)
+      .map((item: any) => item.task as Task);
+
+    // Deduplicate by task id
+    const seen = new Set<string>();
+    const tasksToSchedule = dayTasks.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+
     if (tasksToSchedule.length === 0) return;
 
     setLoading(true);
