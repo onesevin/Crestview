@@ -1,7 +1,7 @@
 // src/app/dashboard/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Task, Schedule, ScheduleItem } from '@/types';
 import { format, addDays, subDays, startOfWeek, isWeekend, isToday } from 'date-fns';
@@ -46,6 +46,8 @@ export default function Dashboard() {
     task?: Task;
     item?: ScheduleItem;
   } | null>(null);
+
+  const busyRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -777,6 +779,9 @@ Return ONLY valid JSON array, no markdown, no explanation.`
   // --- Schedule generation ---
 
   const handleWorkHoursChange = async (dateStr: string, newHours: number) => {
+    // Synchronous guard — prevents concurrent regeneration from rapid clicks
+    if (busyRef.current) return;
+
     setWorkHours({ ...workHours, [dateStr]: newHours });
 
     const { data: existingSchedule } = await supabase
@@ -808,6 +813,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
     if (tasksToSchedule.length === 0) return;
 
+    busyRef.current = true;
     setLoading(true);
     try {
       await supabase
@@ -897,16 +903,19 @@ Return ONLY valid JSON:
     } catch (error) {
       console.error('Error regenerating schedule:', error);
     } finally {
+      busyRef.current = false;
       setLoading(false);
     }
   };
 
   const handleGenerateSchedule = async () => {
+    if (busyRef.current) return;
     if (tasks.length === 0) {
       alert('Please add some tasks first!');
       return;
     }
 
+    busyRef.current = true;
     setLoading(true);
     try {
       const weekDates = getWeekDates();
@@ -986,6 +995,7 @@ Return ONLY valid JSON:
       console.error('Error:', error);
       alert('Failed to generate schedules');
     } finally {
+      busyRef.current = false;
       setLoading(false);
     }
   };
