@@ -33,11 +33,11 @@ export default function DragOverlayContent({ activeItem, priorityConfig }: DragO
       return (
         <div className={`rounded-xl px-4 py-3 border shadow-2xl ring-1 ring-white/20 max-w-[400px] ${
           item.item_type === 'lunch'
-            ? 'bg-[#d4a54a]/[0.06] border-[#d4a54a]/15'
+            ? 'bg-white/[0.04] border-[#7dab6e]/30'
             : 'bg-white/[0.04] border-white/[0.08]'
         }`}>
           <span className={`text-sm font-medium ${
-            item.item_type === 'lunch' ? 'text-[#d4a54a]' : 'text-slate-400'
+            item.item_type === 'lunch' ? 'text-[#7dab6e]' : 'text-slate-400'
           }`}>
             {item.title}
           </span>

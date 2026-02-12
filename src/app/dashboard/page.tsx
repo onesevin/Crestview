@@ -323,6 +323,12 @@ export default function Dashboard() {
   };
 
   const addTaskToDay = async (task: Task, dateStr: string) => {
+    // Remove any existing schedule_items for this task (prevents duplicates across days)
+    await supabase
+      .from('schedule_items')
+      .delete()
+      .eq('task_id', task.id);
+
     // Find or create schedule for the date
     let { data: schedule } = await supabase
       .from('schedules')
