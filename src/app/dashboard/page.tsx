@@ -649,7 +649,6 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             description: task.description || null,
             priority: task.priority || 'medium',
             estimated_minutes: task.estimated_minutes || null,
-            due_date: task.due_date || null,
             status: 'pending'
           }))
         )
