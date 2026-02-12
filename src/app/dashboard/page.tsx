@@ -255,41 +255,18 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       if (shouldRegenerate) {
         setLoading(true);
         try {
-          // First, get all schedule_items for this schedule to delete them
-          const { data: itemsToDelete } = await supabase
+          // Delete old schedule items
+          const { error: deleteItemsError } = await supabase
             .from('schedule_items')
-            .select('id')
+            .delete()
             .eq('schedule_id', existingSchedule.id);
           
-          // Delete schedule items
-          if (itemsToDelete && itemsToDelete.length > 0) {
-            const { error: itemsError } = await supabase
-              .from('schedule_items')
-              .delete()
-              .in('id', itemsToDelete.map(item => item.id));
-            
-            if (itemsError) {
-              console.error('Error deleting schedule items:', itemsError);
-              throw itemsError;
-            }
+          if (deleteItemsError) {
+            console.error('Error deleting schedule items:', deleteItemsError);
+            throw deleteItemsError;
           }
           
-          // Delete the schedule by user_id and date (not by id)
-          const { error: schedError } = await supabase
-            .from('schedules')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('schedule_date', dateStr);
-          
-          if (schedError) {
-            console.error('Error deleting schedule:', schedError);
-            throw schedError;
-          }
-          
-          // Wait to ensure delete completes
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Get tasks for this day from the old schedule or use current tasks
+          // Get tasks to schedule
           const tasksToSchedule = tasks.length > 0 ? tasks : [];
           
           if (tasksToSchedule.length === 0) {
@@ -298,8 +275,92 @@ Return ONLY valid JSON array, no markdown, no explanation.`
             return;
           }
           
-          // Regenerate with new hours
-          await generateScheduleForDay(dateStr, tasksToSchedule, newHours);
+          // Generate new schedule with AI
+          const taskDescriptions = tasksToSchedule.map(t => 
+            `${t.title}${t.description ? ` - ${t.description}` : ''} [Priority: ${t.priority}]`
+          );
+
+          const response = await fetch('/api/claude', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 4000,
+              messages: [{
+                role: 'user',
+                content: `Generate a ${newHours}-hour work schedule for ${dateStr}.
+
+TASKS:
+${taskDescriptions.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+REQUIREMENTS:
+- Total work time: ${newHours} hours
+- Start: 9:00 AM
+- Include 30min lunch break around midday
+- Include 5-10min breaks every 60-90min
+- High-priority tasks in morning
+- DO NOT combine tasks - each task gets its own block
+- Use EXACT task titles from the list above
+
+Return ONLY valid JSON:
+{
+  "blocks": [
+    {"start_time": "09:00", "end_time": "10:30", "type": "task", "title": "exact task name", "estimated_duration": 90},
+    {"start_time": "10:30", "end_time": "10:40", "type": "break", "title": "Short break", "estimated_duration": 10},
+    {"start_time": "12:00", "end_time": "12:30", "type": "lunch", "title": "Lunch break", "estimated_duration": 30}
+  ]
+}`
+              }]
+            })
+          });
+
+          const data = await response.json();
+          const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
+          const schedule = JSON.parse(text);
+          
+          // Update existing schedule with new data
+          const { error: updateError } = await supabase
+            .from('schedules')
+            .update({
+              schedule_data: {
+                total_hours: newHours,
+                work_blocks: schedule.blocks.filter((b: any) => b.type === 'task').length,
+                break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length
+              }
+            })
+            .eq('id', existingSchedule.id);
+          
+          if (updateError) {
+            console.error('Error updating schedule:', updateError);
+            throw updateError;
+          }
+          
+          // Create new schedule items
+          const items = schedule.blocks.map((block: any) => {
+            const matchingTask = tasksToSchedule.find(t => 
+              block.title.toLowerCase().includes(t.title.toLowerCase()) ||
+              t.title.toLowerCase().includes(block.title.toLowerCase())
+            );
+
+            return {
+              schedule_id: existingSchedule.id,
+              task_id: matchingTask?.id || null,
+              start_time: block.start_time,
+              end_time: block.end_time,
+              item_type: block.type,
+              title: block.title,
+              completed: false
+            };
+          });
+
+          const { error: insertError } = await supabase
+            .from('schedule_items')
+            .insert(items);
+          
+          if (insertError) {
+            console.error('Error inserting schedule items:', insertError);
+            throw insertError;
+          }
           
           // Reload schedule
           if (format(selectedDate, 'yyyy-MM-dd') === dateStr) {
