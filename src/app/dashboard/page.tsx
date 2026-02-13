@@ -672,7 +672,6 @@ Return ONLY valid JSON array, no markdown, no explanation.`
 
       setTaskInput('');
       await loadPendingTasks();
-      alert(`Successfully added ${createdTasks.length} task(s)!`);
 
     } catch (error: any) {
       console.error('Error adding tasks:', error);
