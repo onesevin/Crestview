@@ -1105,7 +1105,7 @@ Return ONLY valid JSON:
   };
 
   const getWeekDates = () => {
-    const start = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const start = startOfWeek(new Date(), { weekStartsOn: 0 });
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   };
 
