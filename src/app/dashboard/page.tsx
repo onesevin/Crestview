@@ -107,8 +107,6 @@ export default function Dashboard() {
   };
 
   const loadScheduleForDate = async (date: Date) => {
-    if (isWeekend(date)) return;
-
     const dateStr = format(date, 'yyyy-MM-dd');
     const { data } = await supabase
       .from('schedules')
@@ -140,8 +138,6 @@ export default function Dashboard() {
 
     for (let i = 1; i <= 7; i++) {
       const pastDate = subDays(today, i);
-      if (isWeekend(pastDate)) continue;
-
       const dateStr = format(pastDate, 'yyyy-MM-dd');
       const { data: schedule } = await supabase
         .from('schedules')
@@ -906,7 +902,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`
       const remainingDates = weekDates.filter(date => {
         const d = new Date(date);
         d.setHours(0, 0, 0, 0);
-        return d >= today;
+        return d >= today && !isWeekend(d);
       });
 
       if (remainingDates.length === 0) {
@@ -1110,7 +1106,7 @@ Return ONLY valid JSON:
 
   const getWeekDates = () => {
     const start = startOfWeek(new Date(), { weekStartsOn: 1 });
-    return Array.from({ length: 5 }, (_, i) => addDays(start, i));
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   };
 
   const priorityConfig = {
