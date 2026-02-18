@@ -1243,7 +1243,7 @@ Return ONLY valid JSON:
                   value={taskInput}
                   onChange={(e) => setTaskInput(e.target.value)}
                   placeholder="Describe your tasks naturally...&#10;e.g. Review PRs (high priority)&#10;Write documentation&#10;Fix login bug by Friday"
-                  className="w-full p-3 bg-white/[0.03] border border-white/[0.06] text-white rounded-lg mb-3 h-28 resize-none placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-white/15 focus:border-white/10 transition-all duration-200 text-sm"
+                  className="w-full p-4 bg-white/[0.03] border border-white/[0.06] text-white rounded-lg mb-3 h-44 resize-none placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-white/15 focus:border-white/10 transition-all duration-200 text-base"
                   disabled={loading}
                 />
                 <button
