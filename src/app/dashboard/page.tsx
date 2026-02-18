@@ -49,6 +49,7 @@ export default function Dashboard() {
   } | null>(null);
 
   const busyRef = useRef(false);
+  const rolloverRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -130,6 +131,9 @@ export default function Dashboard() {
   // --- Rollover ---
 
   const checkAndRollover = async () => {
+    if (rolloverRef.current) return;
+    rolloverRef.current = true;
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = format(today, 'yyyy-MM-dd');
@@ -202,9 +206,10 @@ export default function Dashboard() {
         }
       }
 
-      // Skip tasks already on today's schedule
+      // Skip tasks already on today's schedule (check both task_id and title)
       const existingTaskIds = new Set(existingItems.filter((i: any) => i.task_id).map((i: any) => i.task_id));
-      const tasksToAdd = rolledTasks.filter(t => !existingTaskIds.has(t.id));
+      const existingTitles = new Set(existingItems.map((i: any) => i.title?.toLowerCase()).filter(Boolean));
+      const tasksToAdd = rolledTasks.filter(t => !existingTaskIds.has(t.id) && !existingTitles.has(t.title.toLowerCase()));
 
       if (tasksToAdd.length === 0) {
         // All rolled tasks are already on today's schedule — just notify
@@ -1042,19 +1047,29 @@ Return ONLY valid JSON:
     const text = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
     const schedule = JSON.parse(text);
 
+    // Deduplicate blocks: if Claude generated the same task twice, keep only the first
+    const seenTaskTitles = new Set<string>();
+    const dedupedBlocks = schedule.blocks.filter((block: any) => {
+      if (block.type !== 'task') return true;
+      const key = block.title.toLowerCase();
+      if (seenTaskTitles.has(key)) return false;
+      seenTaskTitles.add(key);
+      return true;
+    });
+
     // Update schedule metadata
     await supabase
       .from('schedules')
       .update({
         schedule_data: {
           total_hours: hours,
-          work_blocks: schedule.blocks.filter((b: any) => b.type === 'task').length,
-          break_blocks: schedule.blocks.filter((b: any) => b.type !== 'task').length,
+          work_blocks: dedupedBlocks.filter((b: any) => b.type === 'task').length,
+          break_blocks: dedupedBlocks.filter((b: any) => b.type !== 'task').length,
         },
       })
       .eq('id', scheduleId);
 
-    const items = schedule.blocks.map((block: any) => {
+    const items = dedupedBlocks.map((block: any) => {
       const matchingTask = dayTasks.find(t =>
         block.title.toLowerCase().includes(t.title.toLowerCase()) ||
         t.title.toLowerCase().includes(block.title.toLowerCase())
